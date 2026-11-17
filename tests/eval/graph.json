@@ -1,0 +1,294 @@
+{
+ "now": "2026-11-17T00:00:00Z",
+ "description": "Fixed synthetic graph about a fictional person (Jordan Vale). Pre-extracted; no LLM calls.",
+ "batches": [
+  {
+   "session_id": "eval-1",
+   "ts": "2026-06-01T09:00:00Z",
+   "nodes": [
+    {
+     "type": "person",
+     "name": "Jordan Vale",
+     "summary": "The user: a final-year computer science student applying for masters programs and engineering jobs.",
+     "confidence": 0.9
+    },
+    {
+     "type": "skill",
+     "name": "Python",
+     "summary": "Programming language Jordan has used for four years, mainly for data pipelines and machine learning.",
+     "confidence": 0.9
+    },
+    {
+     "type": "skill",
+     "name": "Rust",
+     "summary": "Systems programming language Jordan uses for performance-critical sync code.",
+     "confidence": 0.9
+    },
+    {
+     "type": "skill",
+     "name": "SQL",
+     "summary": "Query language Jordan uses for analytics dashboards and database design.",
+     "confidence": 0.9
+    },
+    {
+     "type": "skill",
+     "name": "Machine learning",
+     "summary": "Trained gradient-boosted models and small neural networks in coursework and side projects.",
+     "confidence": 0.9
+    },
+    {
+     "type": "project",
+     "name": "Lumen Notes",
+     "summary": "Offline-first note-taking app with end-to-end sync; reached 2,000 monthly active users.",
+     "confidence": 0.9
+    },
+    {
+     "type": "project",
+     "name": "Trail Tracker",
+     "summary": "Hiking GPS app; batched location updates cut battery drain by 30 percent.",
+     "confidence": 0.9
+    },
+    {
+     "type": "organization",
+     "name": "Northfield University",
+     "summary": "University offering an MSc in Computer Science with a strong systems group.",
+     "confidence": 0.9
+    },
+    {
+     "type": "organization",
+     "name": "Brightwave Labs",
+     "summary": "Machine learning startup that hires summer interns.",
+     "confidence": 0.9
+    },
+    {
+     "type": "organization",
+     "name": "Kestrel Robotics",
+     "summary": "Robotics company hiring junior software engineers.",
+     "confidence": 0.9
+    },
+    {
+     "type": "organization",
+     "name": "Harbor Analytics",
+     "summary": "Data consultancy based in Rotterdam.",
+     "confidence": 0.9
+    },
+    {
+     "type": "application",
+     "name": "Northfield University MSc application",
+     "summary": "Preparing documents for the MSc in Computer Science; not yet submitted.",
+     "confidence": 0.9
+    },
+    {
+     "type": "application",
+     "name": "Brightwave Labs internship application",
+     "summary": "Submitted in May for the summer machine learning internship.",
+     "confidence": 0.9
+    },
+    {
+     "type": "application",
+     "name": "Kestrel Robotics engineer application",
+     "summary": "Submitted in June for the junior software engineer role.",
+     "confidence": 0.9
+    },
+    {
+     "type": "decision",
+     "name": "Lumen Notes sync database",
+     "summary": "Chose SQLite with a change log for Lumen Notes sync.",
+     "confidence": 0.9
+    },
+    {
+     "type": "fact",
+     "name": "Thesis deadline",
+     "summary": "The bachelor thesis is due on 1 March 2027.",
+     "confidence": 0.9
+    },
+    {
+     "type": "fact",
+     "name": "GRE score",
+     "summary": "Jordan scored 328 on the GRE (quant 167, verbal 161).",
+     "confidence": 0.9
+    },
+    {
+     "type": "preference",
+     "name": "Preferred city",
+     "summary": "Would like to live in Berlin after graduating.",
+     "confidence": 0.9
+    },
+    {
+     "type": "preference",
+     "name": "Remote work preference",
+     "summary": "Prefers hybrid or remote work with at least two office days for mentoring.",
+     "confidence": 0.9
+    },
+    {
+     "type": "person",
+     "name": "Prof. Ada Lin",
+     "summary": "Jordan's thesis advisor at Northfield University; works on distributed systems.",
+     "confidence": 0.9
+    },
+    {
+     "type": "task",
+     "name": "Ask Prof. Ada Lin for recommendation letter",
+     "summary": "Request a recommendation letter for the MSc applications before December.",
+     "confidence": 0.9
+    },
+    {
+     "type": "task",
+     "name": "Update resume",
+     "summary": "Add Trail Tracker battery results and the Lumen Notes user numbers to the resume.",
+     "confidence": 0.9
+    },
+    {
+     "type": "document",
+     "name": "Resume v3",
+     "summary": "Current one-page resume used for job and internship applications.",
+     "confidence": 0.9
+    },
+    {
+     "type": "document",
+     "name": "Statement of purpose",
+     "summary": "Essay for the Northfield MSc explaining interest in offline-first distributed systems.",
+     "confidence": 0.9
+    }
+   ],
+   "edges": [
+    {
+     "src": "Jordan Vale",
+     "relation": "works_on",
+     "dst": "Lumen Notes"
+    },
+    {
+     "src": "Jordan Vale",
+     "relation": "works_on",
+     "dst": "Trail Tracker"
+    },
+    {
+     "src": "Lumen Notes",
+     "relation": "requires",
+     "dst": "Rust"
+    },
+    {
+     "src": "Lumen Notes",
+     "relation": "requires",
+     "dst": "SQL"
+    },
+    {
+     "src": "Trail Tracker",
+     "relation": "requires",
+     "dst": "Python"
+    },
+    {
+     "src": "Trail Tracker",
+     "relation": "requires",
+     "dst": "Machine learning"
+    },
+    {
+     "src": "Northfield University MSc application",
+     "relation": "applied_to",
+     "dst": "Northfield University"
+    },
+    {
+     "src": "Brightwave Labs internship application",
+     "relation": "applied_to",
+     "dst": "Brightwave Labs"
+    },
+    {
+     "src": "Kestrel Robotics engineer application",
+     "relation": "applied_to",
+     "dst": "Kestrel Robotics"
+    },
+    {
+     "src": "Lumen Notes sync database",
+     "relation": "decided_in",
+     "dst": "Lumen Notes"
+    },
+    {
+     "src": "Prof. Ada Lin",
+     "relation": "part_of",
+     "dst": "Northfield University"
+    },
+    {
+     "src": "Ask Prof. Ada Lin for recommendation letter",
+     "relation": "mentions",
+     "dst": "Prof. Ada Lin"
+    },
+    {
+     "src": "Ask Prof. Ada Lin for recommendation letter",
+     "relation": "relates_to",
+     "dst": "Northfield University MSc application"
+    },
+    {
+     "src": "Update resume",
+     "relation": "relates_to",
+     "dst": "Resume v3"
+    },
+    {
+     "src": "Statement of purpose",
+     "relation": "relates_to",
+     "dst": "Northfield University MSc application"
+    },
+    {
+     "src": "Resume v3",
+     "relation": "mentions",
+     "dst": "Lumen Notes"
+    }
+   ]
+  },
+  {
+   "session_id": "eval-2",
+   "ts": "2026-09-01T09:00:00Z",
+   "nodes": [
+    {
+     "type": "application",
+     "name": "Northfield University MSc application",
+     "summary": "Submitted on 1 September 2026 with the statement of purpose and two references.",
+     "confidence": 0.9
+    },
+    {
+     "type": "fact",
+     "name": "Thesis deadline",
+     "summary": "The bachelor thesis deadline moved to 15 April 2027.",
+     "confidence": 0.9
+    },
+    {
+     "type": "application",
+     "name": "Brightwave Labs internship application",
+     "summary": "Rejected in August 2026 after the final round.",
+     "confidence": 0.9
+    },
+    {
+     "type": "decision",
+     "name": "Lumen Notes sync database",
+     "summary": "Switched Lumen Notes sync to Postgres with row-level replication after load tests.",
+     "confidence": 0.9
+    },
+    {
+     "type": "application",
+     "name": "Harbor Analytics data analyst application",
+     "summary": "Planning to apply in January 2027 for the data analyst role.",
+     "confidence": 0.9
+    }
+   ],
+   "edges": [
+    {
+     "src": "Harbor Analytics data analyst application",
+     "relation": "applied_to",
+     "dst": "Harbor Analytics"
+    }
+   ]
+  },
+  {
+   "session_id": "eval-3",
+   "ts": "2026-11-01T09:00:00Z",
+   "nodes": [
+    {
+     "type": "application",
+     "name": "Kestrel Robotics engineer application",
+     "summary": "Interview scheduled for 3 December 2026 with the platform team.",
+     "confidence": 0.9
+    }
+   ],
+   "edges": []
+  }
+ ]
+}

@@ -1,0 +1,202 @@
+[
+ {
+  "id": 1,
+  "question": "What is the status of my Northfield MSc application?",
+  "gold": [
+   "Northfield University MSc application",
+   "Northfield University"
+  ],
+  "stale_text": "not yet submitted",
+  "current_text": "Submitted on 1 September"
+ },
+ {
+  "id": 2,
+  "question": "When is my thesis due?",
+  "gold": [
+   "Thesis deadline"
+  ],
+  "stale_text": "1 March 2027",
+  "current_text": "15 April 2027"
+ },
+ {
+  "id": 3,
+  "question": "Which database did I choose for Lumen Notes sync?",
+  "gold": [
+   "Lumen Notes sync database",
+   "Lumen Notes"
+  ],
+  "stale_text": "SQLite",
+  "current_text": "Postgres"
+ },
+ {
+  "id": 4,
+  "question": "Did Brightwave Labs accept my internship application?",
+  "gold": [
+   "Brightwave Labs internship application",
+   "Brightwave Labs"
+  ],
+  "stale_text": "Submitted in May",
+  "current_text": "Rejected"
+ },
+ {
+  "id": 5,
+  "question": "When is the Kestrel Robotics interview?",
+  "gold": [
+   "Kestrel Robotics engineer application",
+   "Kestrel Robotics"
+  ],
+  "stale_text": "Submitted in June",
+  "current_text": "3 December 2026"
+ },
+ {
+  "id": 6,
+  "question": "Which programming languages do I use?",
+  "gold": [
+   "Python",
+   "Rust",
+   "SQL"
+  ]
+ },
+ {
+  "id": 7,
+  "question": "Who is my thesis advisor?",
+  "gold": [
+   "Prof. Ada Lin"
+  ]
+ },
+ {
+  "id": 8,
+  "question": "Who should write my recommendation letter?",
+  "gold": [
+   "Ask Prof. Ada Lin for recommendation letter",
+   "Prof. Ada Lin"
+  ]
+ },
+ {
+  "id": 9,
+  "question": "How many users does Lumen Notes have?",
+  "gold": [
+   "Lumen Notes"
+  ]
+ },
+ {
+  "id": 10,
+  "question": "Tell me about my hiking app",
+  "gold": [
+   "Trail Tracker"
+  ]
+ },
+ {
+  "id": 11,
+  "question": "Which project uses Rust?",
+  "gold": [
+   "Lumen Notes",
+   "Rust"
+  ]
+ },
+ {
+  "id": 12,
+  "question": "Which city do I want to live in?",
+  "gold": [
+   "Preferred city"
+  ]
+ },
+ {
+  "id": 13,
+  "question": "Do I prefer remote work?",
+  "gold": [
+   "Remote work preference"
+  ]
+ },
+ {
+  "id": 14,
+  "question": "Which documents do I send with applications?",
+  "gold": [
+   "Resume v3",
+   "Statement of purpose"
+  ]
+ },
+ {
+  "id": 15,
+  "question": "What is my statement of purpose about?",
+  "gold": [
+   "Statement of purpose"
+  ]
+ },
+ {
+  "id": 16,
+  "question": "Which companies have I applied to?",
+  "gold": [
+   "Brightwave Labs internship application",
+   "Kestrel Robotics engineer application",
+   "Harbor Analytics data analyst application"
+  ]
+ },
+ {
+  "id": 17,
+  "question": "What machine learning experience do I have?",
+  "gold": [
+   "Machine learning",
+   "Brightwave Labs"
+  ]
+ },
+ {
+  "id": 18,
+  "question": "What was my GRE score?",
+  "gold": [
+   "GRE score"
+  ]
+ },
+ {
+  "id": 19,
+  "question": "Where does Ada Lin work?",
+  "gold": [
+   "Prof. Ada Lin",
+   "Northfield University"
+  ]
+ },
+ {
+  "id": 20,
+  "question": "What is Harbor Analytics?",
+  "gold": [
+   "Harbor Analytics"
+  ]
+ },
+ {
+  "id": 21,
+  "question": "When will I apply to Harbor Analytics?",
+  "gold": [
+   "Harbor Analytics data analyst application",
+   "Harbor Analytics"
+  ]
+ },
+ {
+  "id": 22,
+  "question": "What battery improvement did Trail Tracker achieve?",
+  "gold": [
+   "Trail Tracker"
+  ]
+ },
+ {
+  "id": 23,
+  "question": "What do I use SQL for?",
+  "gold": [
+   "SQL"
+  ]
+ },
+ {
+  "id": 24,
+  "question": "What should I add to my resume?",
+  "gold": [
+   "Update resume",
+   "Resume v3"
+  ]
+ },
+ {
+  "id": 25,
+  "question": "What am I studying and what am I looking for?",
+  "gold": [
+   "Jordan Vale"
+  ]
+ }
+]
