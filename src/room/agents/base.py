@@ -34,6 +34,14 @@ class Agent(ABC):
     async def healthcheck(self) -> tuple[bool, str]:
         """Return (reachable, short human-readable detail). Must not raise."""
 
+    def skip_reason(self) -> str | None:
+        """Return why this agent must not be called right now (e.g. budget spent), else None.
+
+        The orchestrator checks this before every call and records the reason as
+        a transcript note instead of calling the agent.
+        """
+        return None
+
 
 def build_prompt(name: str, task: str, transcript: list[Message]) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for one agent's turn."""

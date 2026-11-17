@@ -115,6 +115,12 @@ class Room:
     async def _call(self, agent: Agent, task: str, transcript: list[Message], label: str) -> tuple[str, str | None]:
         """Run one reply with presence tracking. Returns (text, error)."""
         try:
+            reason = agent.skip_reason()
+        except Exception as exc:  # noqa: BLE001
+            reason = redact(f"{agent.name}: {type(exc).__name__}: {exc}")
+        if reason:
+            return "", redact(reason)
+        try:
             async with presence.working(agent.name, label, self.presence_dir, self.heartbeat_interval):
                 return await agent.reply(task, transcript), None
         except Exception as exc:  # noqa: BLE001
