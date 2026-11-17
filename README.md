@@ -68,6 +68,10 @@ flowchart LR
   - `room memory search/show/stats/forget/purge`
   - `room brief` writes a context brief to paste into any chat app
   - `room graph` exports Mermaid and HTML
+  - `room memory export` writes the memory as markdown notes with
+    `[[wikilinks]]` into a private vault folder (Obsidian and other tools can
+    read it)
+  - `room remember --clipboard` saves what you copied, after a preview and a y/N
   - `room memory demo` loads made-up sample data
 - **Measured recall quality** with `room memory eval` (numbers below).
 - **Presence files** that a power manager can read, a Muse daily token budget,
@@ -202,6 +206,7 @@ room ask "Write one resume bullet per project" --show-memory   # print the injec
 room ask "Something private" --no-memory                       # no recall, no extraction
 room remember "Summary of a chat with my advisor: ..." --tag advisor
 room remember --file ~/Documents/resume.md --tag resume
+room remember --clipboard --tag chat  # pbpaste (macOS); shows a redacted preview, asks y/N
 room memory search "masters application"
 room memory show "Power Manager"      # or a node id; shows links, history and sources
 room memory stats
@@ -210,7 +215,15 @@ room memory forget 12
 room memory purge                     # asks you to type 'purge'
 room brief --for applications         # writes ~/.agent-room/briefs/applications-<date>.md
 room graph                            # writes ~/.agent-room/exports/graph.md and graph.html
+room memory export                    # markdown vault in ~/.agent-room/vault (see below)
 ```
+
+`room memory export` writes one note per node (frontmatter, summary,
+`[[wikilinks]]` for each link) plus an `index.md`, into
+`~/.agent-room/vault` or `--vault PATH`. **The vault holds your personal data:
+keep it private and local.** Don't put it in a synced or shared folder or in a
+git repository (the command refuses a git work tree unless you pass
+`--i-know-this-is-a-repo`). Details: [docs/MEMORY.md](docs/MEMORY.md#vault-export).
 
 Example `--show-memory` output from a real run:
 

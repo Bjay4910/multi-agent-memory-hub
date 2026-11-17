@@ -46,7 +46,7 @@ Migrations are versioned in `schema_version` (currently **2**) and applied in or
 |-------|---------|
 | `nodes` | `id`, `type`, `name`, `norm_name`, `summary`, `aliases` (`|`-separated), `status` (`active` / `superseded`), `confidence` (0–1), `created_at`, `updated_at` |
 | `edges` | `id`, `src` → nodes, `dst` → nodes, `relation`, `created_at`; unique on (`src`, `dst`, `relation`) |
-| `provenance` | `id`, `node_id` **or** `edge_id`, `session_id`, `agent` (the extractor), `source` (`session` / `manual`), `ts` |
+| `provenance` | `id`, `node_id` **or** `edge_id`, `session_id`, `agent` (the extractor), `source` (`session` / `manual` / `clipboard`), `ts` |
 | `nodes_fts` | FTS5 over `name`, `summary`, `aliases` (Porter stemming), kept in sync by triggers |
 | `meta` | key/value; `demo=1` marks the made-up demo database |
 | `schema_version` | one row: the applied migration version |
@@ -145,6 +145,70 @@ the normal store logic, so dedupe and supersede are exercised too. It reports:
 - recall@3, recall@8, precision@3 and MRR over the gold nodes
 - a stale-fact check: five questions whose answer changed over time; the
   superseded text must not appear in the memory block, and the current text must
+
+## Vault export
+
+`room memory export [--vault PATH] [--include-superseded]` writes memory as
+plain markdown notes that other tools (Obsidian, editors, grep, scripts) can
+read. No network calls and no model calls are made.
+
+> **The vault is personal data.** It contains the same facts as `memory.db`,
+> in readable form. Keep it private and on this machine. Don't put it in a
+> cloud-synced folder, a shared drive or a git repository.
+
+Layout (default `~/.agent-room/vault`):
+
+```
+vault/
+  index.md                          every note, grouped by type
+  people/me-1.md
+  projects/agent-room-2.md
+  decisions/ facts/ tasks/ ...      one folder per node type
+  .room-vault.json                  list of files the exporter manages
+```
+
+- **Filenames** are `<slug>-<node id>.md`: lowercase ASCII words, cut at a
+  word boundary so the name stays under 32 characters. The same node always
+  gets the same path; a renamed node gets a new path and the old note is removed.
+- **Frontmatter:** `id`, `type`, `name`, `created`, `updated`, `status`
+  (`active` / `superseded`), `confidence`, `aliases`, and `sources` (a list of
+  `source:session_id`, where source is `session`, `manual` or `clipboard`).
+- **Body:** the summary, then a `## Related` section with one line per edge:
+  `- part_of [[projects/agent-room-2|Agent Room]]` for outgoing links and
+  `- [[people/me-1|Me]] works_on this` for incoming ones. Links use the note
+  path plus the display name, so they resolve in Obsidian whatever the folder.
+- **Superseded nodes** are left out by default. With `--include-superseded`
+  they are exported with `status: superseded`, a "SUPERSEDED: this is outdated
+  history" banner, a `(superseded)` mark on links to them, and their own
+  section in `index.md`.
+- **Idempotent.** Re-running writes only changed notes, adds new ones, and
+  deletes notes for nodes that were forgotten, purged or are no longer
+  exported. Only files listed in `.room-vault.json` are ever changed or
+  deleted. Your own notes in the folder are left alone, and an existing file
+  that room didn't write is never overwritten. After `room memory purge`, run
+  the export again to empty the vault, or delete the folder: purge itself
+  doesn't touch the vault.
+
+Safety checks:
+
+- The vault folder is created (or reset) to mode `700` and notes are written
+  with mode `600`.
+- A vault inside any git work tree (any folder with a `.git` above it,
+  including this repository) is refused unless you pass
+  `--i-know-this-is-a-repo`. A path overlapping `~/.config/agent-keys` is
+  always refused; that directory is never read.
+- Every note, including `index.md`, is passed through `redact_secrets`. The
+  result is then checked with `find_secrets` (the same patterns, the configured
+  key values and high-entropy tokens). A note that still matches is not
+  written; the command names it and exits with status 1.
+
+`room remember --clipboard [--tag TAG] [--yes]` is the matching way in. It
+reads the clipboard with `pbpaste` (macOS) and refuses anything over 50,000
+characters. It redacts the text, prints its size and a preview of the first
+300 characters (after redaction), and asks `Save this to memory? [y/N]`;
+`--yes` skips the question. The note is stored with source `clipboard` and
+extracted like any other `room remember` note. If Hermes/Ollama is not
+running, it is queued for `room memory process`.
 
 ## Reading the database from another tool
 
