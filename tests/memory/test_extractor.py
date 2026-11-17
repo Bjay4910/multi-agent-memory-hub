@@ -71,9 +71,14 @@ def test_validation_normalizes_and_redacts():
 
 # -- source text -------------------------------------------------------------
 
-def test_source_text_uses_task_and_final_and_redacts():
+def test_source_text_defaults_to_user_words_only():
+    text = ex.source_text(session())
+    assert "I applied to TU Munich" in text and "Good luck" not in text and "ANSWER" not in text
+
+
+def test_source_text_session_scope_uses_task_and_final_and_redacts():
     msgs = session(task="My key is AI" "zaSyA1234567890abcdefghijklmnopqrstu and I like Rust.")
-    text = ex.source_text(msgs)
+    text = ex.source_text(msgs, scope="session")
     assert "AI" "za" not in text and "[REDACTED]" in text and "I like Rust" in text
     assert "Good luck with TU Munich." in text
     assert "round reply" not in text and "gemini skipped" not in text
@@ -81,7 +86,7 @@ def test_source_text_uses_task_and_final_and_redacts():
 
 def test_source_text_falls_back_to_last_round():
     msgs = [Message("s", "user", 0, "user", "Q"), Message("s", "a", 1, "agent", "old"), Message("s", "b", 2, "agent", "latest")]
-    text = ex.source_text(msgs)
+    text = ex.source_text(msgs, scope="session")
     assert "b: latest" in text and "old" not in text
 
 
@@ -241,6 +246,14 @@ def test_openai_compat_sends_structured_output_format(monkeypatch):
 
 def test_prompt_has_no_real_world_example_names_and_labels_sections():
     assert "Munich" not in ex.SYSTEM_PROMPT and "never record its" in ex.SYSTEM_PROMPT
-    text = ex.source_text(session())
+    text = ex.source_text(session(), scope="session")
     assert text.startswith("USER (the user speaking about themselves):")
     assert "ANSWER (advice from AI assistants; may contain guesses):" in text
+
+
+def test_extract_scope_from_env(monkeypatch):
+    assert ex.extract_scope() == "user"
+    monkeypatch.setenv("MEMORY_EXTRACT_FROM", "session")
+    assert ex.extract_scope() == "session"
+    monkeypatch.setenv("MEMORY_EXTRACT_FROM", "everything")
+    assert ex.extract_scope() == "user"

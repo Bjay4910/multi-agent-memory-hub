@@ -2,8 +2,11 @@
 
 Flow for one session:
 
-1. Build the source text (task + final answer, or the manual note), redact
-   secret-looking strings, and cap its length.
+1. Build the source text, redact secret-looking strings, and cap its length.
+   By default only the user's own words are used (the task, or a manual note);
+   ``MEMORY_EXTRACT_FROM=session`` also includes the final answer. The default
+   avoids a feedback loop where advice built from recalled memory (or plain
+   guesses and placeholders) is stored back as facts about the user.
 2. Ask the extractor agent (``MEMORY_EXTRACTOR``, default ``hermes``, local and
    free) for strict JSON and validate it against the schema.
 3. If invalid, send one repair prompt listing the errors.
@@ -225,15 +228,25 @@ def parse_and_validate(raw: str) -> tuple[dict | None, list[str]]:
 
 # -- source text ----------------------------------------------------------------
 
-def source_text(messages: list[Message]) -> str:
-    """The part of a session worth extracting from: the task(s) and the final answer.
+SOURCE_SCOPES = ("user", "session")
 
-    Falls back to the last round of replies when there is no final answer.
+
+def extract_scope() -> str:
+    scope = (os.environ.get("MEMORY_EXTRACT_FROM") or "user").strip().lower()
+    return scope if scope in SOURCE_SCOPES else "user"
+
+
+def source_text(messages: list[Message], scope: str | None = None) -> str:
+    """The part of a session worth extracting from.
+
+    ``user`` (default): only the user's task(s) / manual note.
+    ``session``: also the final answer (or, without one, the last round of replies).
     Notes and recalled memory are never included.
     """
+    scope = scope or extract_scope()
     tasks = [m.content for m in messages if m.role == ROLE_USER]
-    final = [m.content for m in messages if m.role == ROLE_FINAL]
-    if not final:
+    final = [m.content for m in messages if m.role == ROLE_FINAL] if scope == "session" else []
+    if scope == "session" and not final:
         replies = [m for m in messages if m.role == ROLE_AGENT]
         last_round = max((m.round for m in replies), default=0)
         final = [f"{m.agent}: {m.content}" for m in replies if m.round == last_round]
