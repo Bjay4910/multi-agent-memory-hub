@@ -32,7 +32,9 @@ flowchart LR
 - **Orchestrator** (`src/room/orchestrator.py`): health-checks the agents,
   skips unreachable ones with a note, runs N rounds where each agent sees the
   full transcript, then asks the synthesizer for the final answer. If the
-  synthesizer fails, it falls back to another agent that replied.
+  synthesizer fails, it falls back to another agent that replied. Before every
+  call it asks the agent for a `skip_reason()` (used by Muse's daily token
+  budget) and records that as a note instead of calling.
 - **Presence** (`src/room/presence.py`): atomic `working`/`idle` files with a
   30 s heartbeat; readers treat `working` older than 120 s as stale. Contract:
   [docs/PRESENCE.md](docs/PRESENCE.md).
@@ -81,11 +83,31 @@ the terminal, the session log or presence files.
 | `GEMINI_MODEL`    | `gemini-4-hydrogen`          | Gemini model id |
 | `MUSE_MODEL`      | `muse-spark-1.1`             | Muse model id |
 | `MUSE_BASE_URL`   | `https://api.meta.ai/v1`     | Muse endpoint |
+| `MUSE_DAILY_TOKEN_LIMIT` | `200000`              | Max Muse tokens per UTC day (see below) |
 | `HERMES_MODEL`    | `hermes3:8b`                 | Ollama model |
 | `HERMES_BASE_URL` | `http://localhost:11434/v1`  | Ollama endpoint |
 | `CLAUDE_MODEL`    | CLI default                  | Passed as `claude --model` |
 | `CLAUDE_TIMEOUT`  | `180`                        | Seconds before the Claude CLI call is killed |
 | `AGENT_ROOM_HOME` | `~/.agent-room`              | Where presence and session files go |
+
+### Muse budget guard
+
+Muse is a paid API, so the room caps how many Muse tokens it spends per day.
+After every successful Muse call, the token count reported by the API (or an
+estimate of about 4 characters per token if the API reports none) is added to
+`~/.agent-room/usage/muse.json`:
+
+```json
+{"agent": "muse", "days": {"2026-11-17": 1834}, "updated_at": "2026-11-17T16:49:47Z"}
+```
+
+Before each Muse call, the room checks today's total (UTC day). Once it reaches
+`MUSE_DAILY_TOKEN_LIMIT`, Muse is not called again that day. The rest of the room
+keeps going, and the transcript gets a note such as
+`muse skipped this round: muse: daily token limit reached (200000/200000 tokens used today, UTC)`.
+The check runs before each call, so the call that crosses the limit can
+overshoot it by one reply. An invalid limit value (for example `abc`) disables
+Muse rather than removing the cap. `room agents` shows today's usage.
 
 ## Usage
 
@@ -98,7 +120,7 @@ room agents
 ```
 OK    hermes  model hermes3:8b at http://localhost:11434/v1
 OK    gemini  model gemini-4-hydrogen
-OK    muse    model muse-spark-1.1 at https://api.meta.ai/v1
+OK    muse    model muse-spark-1.1 at https://api.meta.ai/v1, budget 0/200000 tokens today
 OK    claude  Claude Code CLI 2.1.326 (login not verified)
 ```
 
