@@ -1,4 +1,7 @@
-"""Gemini via the google-genai SDK. Key comes from GEMINI_API_KEY."""
+"""Gemini via the google-genai SDK (agent "gemini-api", opt-in). Key comes from GEMINI_API_KEY.
+
+The default "gemini" agent uses the Antigravity CLI instead (see gemini_agy.py).
+"""
 
 from __future__ import annotations
 
@@ -11,8 +14,8 @@ from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, build_prompt, redact
 DEFAULT_MODEL = "gemini-4-hydrogen"
 
 
-class GeminiAgent(Agent):
-    name = "gemini"
+class GeminiAPIAgent(Agent):
+    name = "gemini-api"
 
     def __init__(self, timeout: float = DEFAULT_TIMEOUT_S) -> None:
         self.model = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
@@ -22,7 +25,7 @@ class GeminiAgent(Agent):
     def _get_client(self):
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
-            raise AgentError("gemini: API key not configured (set GEMINI_API_KEY)")
+            raise AgentError("gemini-api: API key not configured (set GEMINI_API_KEY)")
         if self._client is None:
             from google import genai  # imported lazily: the SDK is slow to import
 
@@ -31,9 +34,9 @@ class GeminiAgent(Agent):
 
     def _describe(self, exc: Exception) -> str:
         if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
-            return f"gemini: request timed out after {self.timeout:.0f}s"
+            return f"gemini-api: request timed out after {self.timeout:.0f}s"
         code = getattr(exc, "code", None)
-        prefix = f"gemini: HTTP {code}: " if code else f"gemini: {type(exc).__name__}: "
+        prefix = f"gemini-api: HTTP {code}: " if code else f"gemini-api: {type(exc).__name__}: "
         return prefix + redact(str(getattr(exc, "message", None) or exc))
 
     async def reply(self, task: str, transcript: list[Message]) -> str:
@@ -54,7 +57,7 @@ class GeminiAgent(Agent):
         except Exception as exc:  # noqa: BLE001
             raise AgentError(self._describe(exc)) from None
         if not text:
-            raise AgentError(f"gemini: empty response from model {self.model}")
+            raise AgentError(f"gemini-api: empty response from model {self.model}")
         return text
 
     async def healthcheck(self) -> tuple[bool, str]:
