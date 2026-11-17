@@ -321,7 +321,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 return 0
             for node, score in results:
                 flag = "" if node.status == "active" else " (superseded)"
-                print(f"#{node.id:<4} {node.type:<12} {node.name}{flag}  [{score:.2f}]\n       {_summary(node.summary)}")
+                print(f"#{node.id:<4} {node.type:<12} {node.name}{flag}\n       {_summary(node.summary)}")
             return 0
         if cmd == "show":
             nodes = [store.get_node(int(args.node))] if args.node.isdigit() else store.find_nodes(args.node)

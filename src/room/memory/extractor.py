@@ -44,10 +44,15 @@ SUMMARY_MAX_CHARS = 600
 DEFAULT_TIMEOUT_S = 300.0
 
 SYSTEM_PROMPT = f"""You extract long-term memory for a personal knowledge graph.
-Read the text and record durable facts about the user and their world: who they are,
-their projects and results, skills, decisions, preferences, applications (jobs, programs,
-grants) and their status, open tasks, documents, and the people and organizations involved.
-Ignore general knowledge, definitions and small talk. Never include passwords, API keys or tokens.
+Record durable facts about the user and their world: who they are, their projects and results,
+skills, decisions, preferences, applications (jobs, programs, grants) and their status, open
+tasks, documents, and the people and organizations involved.
+
+Only record what the text actually states. The USER section is the user speaking about
+themselves: those are facts. The ANSWER section is advice from AI assistants: never record its
+suggestions, examples or guesses as facts about the user. Do not invent names, organizations,
+numbers or dates. Ignore general knowledge, definitions and small talk. Never include passwords,
+API keys or tokens.
 
 Output ONLY one JSON object, no prose, no code fences, exactly in this shape:
 {{"nodes": [{{"type": "...", "name": "...", "summary": "...", "confidence": 0.0}}],
@@ -56,13 +61,53 @@ Output ONLY one JSON object, no prose, no code fences, exactly in this shape:
 Rules:
 - type is one of: {", ".join(NODE_TYPES)}
 - relation is one of: {", ".join(RELATIONS)}
-- name: short and canonical (e.g. "TU Munich", "Agent Room"), at most {NAME_MAX_CHARS} characters
+- name: a short natural name in Title Case with spaces (e.g. "Garden Planner", never
+  "garden_planner"), at most {NAME_MAX_CHARS} characters; the user is the person node "Me"
 - summary: one or two factual sentences, at most {SUMMARY_MAX_CHARS} characters
 - confidence: a number from 0 to 1 (how sure the text makes you)
-- an application node is named after what was applied to, e.g. "TU Munich MSc application",
-  and links to the organization with applied_to
+- an application node is named "<organization> <program or role> application" and links to the
+  organization with applied_to; only create organizations the text names
 - edges may only use node names from your "nodes" list
 - if there is nothing worth remembering, output {{"nodes": [], "edges": []}}"""
+
+# JSON Schema for backends with structured outputs (Ollama). Validation below
+# still checks every output, whichever backend produced it.
+EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "nodes": {
+            "type": "array",
+            "maxItems": MAX_NODES,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": list(NODE_TYPES)},
+                    "name": {"type": "string", "minLength": 1, "maxLength": NAME_MAX_CHARS},
+                    "summary": {"type": "string", "maxLength": SUMMARY_MAX_CHARS},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["type", "name", "summary", "confidence"],
+                "additionalProperties": False,
+            },
+        },
+        "edges": {
+            "type": "array",
+            "maxItems": MAX_EDGES,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "src": {"type": "string", "minLength": 1},
+                    "relation": {"type": "string", "enum": list(RELATIONS)},
+                    "dst": {"type": "string", "minLength": 1},
+                },
+                "required": ["src", "relation", "dst"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["nodes", "edges"],
+    "additionalProperties": False,
+}
 
 USER_TEMPLATE = "Text to extract memory from:\n<<<\n{text}\n>>>\n\nJSON:"
 
@@ -194,9 +239,9 @@ def source_text(messages: list[Message]) -> str:
         final = [f"{m.agent}: {m.content}" for m in replies if m.round == last_round]
     parts = []
     if tasks:
-        parts.append("User:\n" + "\n\n".join(tasks))
+        parts.append("USER (the user speaking about themselves):\n" + "\n\n".join(tasks))
     if final:
-        parts.append("Answer:\n" + "\n\n".join(final))
+        parts.append("ANSWER (advice from AI assistants; may contain guesses):\n" + "\n\n".join(final))
     return redact_secrets("\n\n".join(parts))[:MAX_SOURCE_CHARS]
 
 
@@ -285,12 +330,12 @@ class ExtractionResult:
 
 async def extract_with(agent: Agent, text: str) -> tuple[dict | None, list[str]]:
     """One extraction attempt plus at most one repair prompt."""
-    raw = await agent.complete(SYSTEM_PROMPT, USER_TEMPLATE.format(text=text), json_output=True)
+    raw = await agent.complete(SYSTEM_PROMPT, USER_TEMPLATE.format(text=text), json_output=True, json_schema=EXTRACTION_SCHEMA)
     data, errors = parse_and_validate(raw)
     if data is not None:
         return data, []
     repair = REPAIR_TEMPLATE.format(errors="\n".join(f"- {e}" for e in errors[:12]), previous=raw[:4000])
-    raw = await agent.complete(SYSTEM_PROMPT, repair, json_output=True)
+    raw = await agent.complete(SYSTEM_PROMPT, repair, json_output=True, json_schema=EXTRACTION_SCHEMA)
     data, repair_errors = parse_and_validate(raw)
     return (data, []) if data is not None else (None, [f"invalid JSON after repair: {repair_errors[0]}"])
 

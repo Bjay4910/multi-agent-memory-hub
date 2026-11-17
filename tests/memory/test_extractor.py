@@ -206,3 +206,41 @@ def test_process_queue_drops_missing_logs(isolated_home):
     ex.enqueue("ghost", "session", "boom")
     results = asyncio.run(ex.process_queue(lambda n: None))
     assert results[0].status == "empty" and ex.queued_sessions() == []
+
+
+def test_extractor_passes_schema_and_schema_matches_validator(isolated_home, factory):
+    build = factory({"hermes": [GOOD]})
+    run(session(), build)
+    schema = build.created["hermes"].schemas[0]
+    assert schema is ex.EXTRACTION_SCHEMA
+    node_props = schema["properties"]["nodes"]["items"]["properties"]
+    assert node_props["type"]["enum"] == list(ex.NODE_TYPES)
+    assert schema["properties"]["edges"]["items"]["properties"]["relation"]["enum"] == list(ex.RELATIONS)
+
+
+def test_openai_compat_sends_structured_output_format(monkeypatch):
+    from types import SimpleNamespace
+
+    from room.agents.hermes import HermesAgent
+
+    sent = {}
+
+    class FakeCompletions:
+        async def create(self, **kw):
+            sent.update(kw)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))], usage=None)
+
+    agent = HermesAgent()
+    agent._client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    asyncio.run(agent.complete("s", "p", json_output=True, json_schema={"type": "object"}))
+    assert sent["response_format"]["type"] == "json_schema"
+    assert sent["response_format"]["json_schema"]["schema"] == {"type": "object"}
+    asyncio.run(agent.complete("s", "p", json_output=True))
+    assert sent["response_format"] == {"type": "json_object"}
+
+
+def test_prompt_has_no_real_world_example_names_and_labels_sections():
+    assert "Munich" not in ex.SYSTEM_PROMPT and "never record its" in ex.SYSTEM_PROMPT
+    text = ex.source_text(session())
+    assert text.startswith("USER (the user speaking about themselves):")
+    assert "ANSWER (advice from AI assistants; may contain guesses):" in text

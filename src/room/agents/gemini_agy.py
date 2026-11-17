@@ -68,7 +68,7 @@ class AntigravityGeminiAgent(Agent):
             raise AgentError(f"gemini: Antigravity CLI '{self.executable}' not found (install agy)")
         return path
 
-    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False, json_schema: dict | None = None) -> str:
         # agy has no system-prompt flag, so the instructions go first in the prompt.
         cmd = build_command(self._resolve(), f"{system}\n\n{prompt}", self.model)
         try:

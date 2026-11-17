@@ -38,7 +38,7 @@ class GeminiAPIAgent(Agent):
         prefix = f"gemini-api: HTTP {code}: " if code else f"gemini-api: {type(exc).__name__}: "
         return prefix + redact(str(getattr(exc, "message", None) or exc))
 
-    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False, json_schema: dict | None = None) -> str:
         from google.genai import types
 
         client = self._get_client()

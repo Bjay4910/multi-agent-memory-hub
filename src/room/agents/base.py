@@ -31,10 +31,12 @@ class Agent(ABC):
         system, user = build_prompt(self.name, task, transcript)
         return await self.complete(system, user)
 
-    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False, json_schema: dict | None = None) -> str:
         """One raw completion with a custom system prompt (used by memory extraction).
 
-        ``json_output`` asks for a JSON object where the backend supports it.
+        ``json_output`` asks for a JSON object where the backend supports it;
+        ``json_schema`` additionally constrains it to a schema where the backend
+        supports structured outputs (Ollama). Other backends ignore it.
         Raise AgentError on failure.
         """
         raise AgentError(f"{self.name}: raw completions are not supported")

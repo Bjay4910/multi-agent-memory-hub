@@ -54,7 +54,7 @@ class ClaudeCLIAgent(Agent):
             raise AgentError(f"claude: '{self.executable}' not found on PATH (install Claude Code)")
         return path
 
-    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False, json_schema: dict | None = None) -> str:
         cmd = build_command(self._resolve(), system, prompt, self.model)
         try:
             code, out, err = await run_cli(cmd, self.timeout)

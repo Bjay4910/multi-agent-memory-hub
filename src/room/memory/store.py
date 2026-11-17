@@ -102,13 +102,13 @@ def utc_now() -> str:
 
 def normalize_name(name: str) -> str:
     text = unicodedata.normalize("NFKC", name).lower()
-    text = re.sub(r"[^\w]+", " ", text).strip()
+    text = re.sub(r"[\W_]+", " ", text).strip()
     text = re.sub(r"^the ", "", text)
     return re.sub(r"\s+", " ", text)
 
 
 def _norm_text(text: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", text.lower())).strip()
+    return re.sub(r"\s+", " ", re.sub(r"[\W_]+", " ", text.lower())).strip()
 
 
 def _sentences(text: str) -> list[str]:

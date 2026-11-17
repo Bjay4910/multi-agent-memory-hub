@@ -14,8 +14,9 @@ class ScriptedExtractor(Agent):
         self.outputs = list(outputs)
         self.prompts = []
 
-    async def complete(self, system, prompt, *, json_output=False):
+    async def complete(self, system, prompt, *, json_output=False, json_schema=None):
         self.prompts.append((system, prompt, json_output))
+        self.schemas = getattr(self, "schemas", []) + [json_schema]
         if not self.outputs:
             raise AgentError(f"{self.name}: no more scripted outputs")
         out = self.outputs.pop(0)

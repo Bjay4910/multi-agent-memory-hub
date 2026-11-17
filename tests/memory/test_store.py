@@ -173,3 +173,9 @@ def test_refuses_database_inside_repo(monkeypatch):
     with pytest.raises(RepoWriteError):
         MemoryStore()
     assert not (root / "agent-room-data").exists()
+
+
+def test_underscored_names_dedupe_with_spaced_names(store):
+    a, _ = store.upsert_node("project", "agent_room", "x", 0.5, P)
+    b, action = store.upsert_node("project", "Agent Room", "y", 0.5, P)
+    assert a == b and action == "merged"

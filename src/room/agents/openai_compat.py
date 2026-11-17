@@ -61,12 +61,17 @@ class OpenAICompatAgent(Agent):
             return f"{self.name}: HTTP {exc.status_code} from API: {redact(str(exc.message))}"
         return f"{self.name}: {type(exc).__name__}: {redact(str(exc))}"
 
-    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False, json_schema: dict | None = None) -> str:
         reason = self.skip_reason()
         if reason:  # defence in depth; the orchestrator checks this first
             raise AgentError(reason)
         client = self._get_client()
-        extra = {"response_format": {"type": "json_object"}} if json_output and self.supports_json_mode else {}
+        extra = {}
+        if self.supports_json_mode and json_schema:
+            # Structured outputs: decoding is constrained to the schema (enums included).
+            extra["response_format"] = {"type": "json_schema", "json_schema": {"name": "output", "schema": json_schema, "strict": True}}
+        elif self.supports_json_mode and json_output:
+            extra["response_format"] = {"type": "json_object"}
         try:
             resp = await client.chat.completions.create(
                 model=self.model,
