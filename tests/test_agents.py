@@ -32,7 +32,7 @@ def test_unknown_agent():
 def test_missing_keys_fail_gracefully(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("MUSE_API_KEY", raising=False)
-    for name in ("gemini", "muse"):
+    for name in ("gemini-api", "muse"):
         agent = build_agent(name)
         ok, detail = asyncio.run(agent.healthcheck())
         assert not ok and "not configured" in detail
