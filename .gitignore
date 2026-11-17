@@ -22,3 +22,7 @@ exports/
 sessions/
 presence/
 usage/
+
+# memory vault exports (personal data)
+vault/
+.room-vault.json

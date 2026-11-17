@@ -55,3 +55,26 @@ def redact_secrets(text: str) -> str:
     text = _LABEL_VALUE.sub(lambda m: m.group(1) + REPLACEMENT, text)
     return _TOKEN_CANDIDATE.sub(lambda m: REPLACEMENT if _looks_random(m.group(0)) else m.group(0), text)
 
+
+
+def find_secrets(text: str) -> list[str]:
+    """Names of the secret patterns that still match ``text`` (``[REDACTED]`` itself is ignored).
+
+    Used as a last check before writing files that leave the database, such as
+    vault notes: anything listed here means "do not write".
+    """
+    if not text:
+        return []
+    found = []
+    for var in SECRET_ENV_VARS:
+        value = os.environ.get(var)
+        if value and len(value) >= 8 and value in text:
+            found.append(var)
+    for i, pattern in enumerate(_PATTERNS):
+        if pattern.search(text):
+            found.append(f"pattern-{i}")
+    if any(m.group(0)[len(m.group(1)):].strip("\"'") != REPLACEMENT for m in _LABEL_VALUE.finditer(text)):
+        found.append("labelled-value")
+    if any(_looks_random(m.group(0)) for m in _TOKEN_CANDIDATE.finditer(text)):
+        found.append("high-entropy-token")
+    return found

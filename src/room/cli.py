@@ -95,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     ev = msub.add_parser("eval", help="run the offline recall evaluation")
     ev.add_argument("--dir", type=Path, help="eval fixture directory (default: tests/eval)")
     ev.add_argument("--verbose", action="store_true", help="list questions with missed gold nodes")
+    ex = msub.add_parser("export", help="write memory as markdown notes into a private vault folder")
+    ex.add_argument("--vault", type=Path, help="vault folder (default: ~/.agent-room/vault)")
+    ex.add_argument("--include-superseded", action="store_true", help="also export superseded (outdated) nodes, marked as such")
+    ex.add_argument("--i-know-this-is-a-repo", dest="allow_repo", action="store_true",
+                    help="allow a vault inside a git work tree (personal data could get committed)")
 
     br = sub.add_parser("brief", help="write a markdown context brief to paste into any chat app")
     br.add_argument("--for", dest="purpose", choices=PURPOSES, default="applications")
@@ -265,6 +270,20 @@ def cmd_memory(args: argparse.Namespace) -> int:
         report = evaluate(directory)
         print(report.format(verbose=args.verbose))
         return 0 if report.stale_violations == 0 else 1
+    if cmd == "export":
+        from .memory.vault import VaultSafetyError, export_vault
+
+        try:
+            res = export_vault(args.vault, args.include_superseded, args.allow_repo)
+        except VaultSafetyError as exc:
+            print(f"room memory export: {exc}", file=sys.stderr)
+            return 2
+        print(f"Vault: {res.vault} (private: personal data, keep it local)")
+        print(f"  {res.written} files: {len(res.created)} new, {len(res.updated)} updated, "
+              f"{len(res.unchanged)} unchanged; {len(res.removed)} removed")
+        for rel, reason in res.refused:
+            print(f"  refused {rel}: {reason}", file=sys.stderr)
+        return 1 if res.refused else 0
     if cmd == "process":
         queued = extractor.queued_sessions()
         if not queued:
