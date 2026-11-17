@@ -8,3 +8,17 @@ dist/
 build/
 *.egg-info/
 .DS_Store
+
+# Personal memory data must never be committed (it lives in ~/.agent-room)
+.agent-room/
+agent-room/
+memory.db
+memory.db-*
+*.db-wal
+*.db-shm
+memory_queue/
+briefs/
+exports/
+sessions/
+presence/
+usage/
