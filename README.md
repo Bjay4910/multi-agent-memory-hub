@@ -99,7 +99,7 @@ room agents
 OK    hermes  model hermes3:8b at http://localhost:11434/v1
 OK    gemini  model gemini-4-hydrogen
 OK    muse    model muse-spark-1.1 at https://api.meta.ai/v1
-OK    claude  Claude Code CLI 2.x (login not verified)
+OK    claude  Claude Code CLI 2.1.326 (login not verified)
 ```
 
 Ask the room a question (replies print as they arrive, then the final answer):

@@ -106,4 +106,5 @@ class ClaudeCLIAgent(Agent):
         if code != 0:
             return False, f"claude: 'claude --version' failed: {redact(err or out)}"
         # --version does not prove the login works; `room ask` surfaces auth errors.
-        return True, f"Claude Code CLI {out.strip()} (login not verified)"
+        version = out.strip().split()[0] if out.strip() else "unknown version"
+        return True, f"Claude Code CLI {version} (login not verified)"
