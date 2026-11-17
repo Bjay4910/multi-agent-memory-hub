@@ -1,23 +1,24 @@
 # multi-agent-memory-hub
 
 A local "room" where several AI models work on the same question together.
-Hermes (running locally through Ollama), Gemini, Muse and Claude each answer
-in turn, every agent can read the shared transcript of what the others said,
-and after a configurable number of rounds one agent writes a synthesized final
-answer. While an agent is thinking, the room publishes a small presence file
-so other local tools can tell the machine is busy, and every message is saved
-to a JSON Lines session log that a future graph-memory layer will ingest.
+By default Claude and Gemini answer in turn; Hermes (running locally through
+Ollama) and Muse can be added per run. Every agent can read the shared
+transcript of what the others said, and after a configurable number of rounds
+one agent writes a synthesized final answer. While an agent is thinking, the
+room publishes a small presence file so other local tools can tell the machine
+is busy, and every message is saved to a JSON Lines session log that a future
+graph-memory layer will ingest.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     U["room ask &quot;question&quot;"] --> O[Room orchestrator]
-    O -->|round 1..N, in order| H[Hermes<br/>Ollama, local]
-    O --> G[Gemini<br/>google-genai]
-    O --> M[Muse<br/>Meta Model API]
-    O --> C[Claude<br/>claude -p, no tools]
-    H & G & M & C -->|reply| T[(Shared transcript)]
+    O -->|round 1..N, in order| C[Claude<br/>claude -p, no tools]
+    O --> G[Gemini<br/>agy -p, no tools]
+    O -.->|--with hermes| H[Hermes<br/>Ollama, local]
+    O -.->|--with muse| M[Muse<br/>Meta Model API, daily budget]
+    C & G & H & M -->|reply| T[(Shared transcript)]
     T -->|full history| O
     O -->|after N rounds| S[Synthesizer<br/>default: claude]
     S --> F[Final answer]
@@ -41,15 +42,26 @@ flowchart LR
 - **Session log**: one JSONL line per message. Format:
   [docs/SESSIONS.md](docs/SESSIONS.md).
 
+### Agents
+
+| Name         | Default? | Backend | Auth |
+|--------------|----------|---------|------|
+| `claude`     | yes      | Claude Code CLI (`claude -p`) | your Claude Code login |
+| `gemini`     | yes      | Antigravity CLI (`agy -p`) | your Google sign-in in `agy` |
+| `hermes`     | opt-in   | Ollama, OpenAI-compatible API | none (local) |
+| `muse`       | opt-in   | Meta Model API, OpenAI-compatible | `MUSE_API_KEY` |
+| `gemini-api` | opt-in   | Gemini API via `google-genai` | `GEMINI_API_KEY` |
+
 ## Setup
 
 Requirements: macOS or Linux, Python 3.11+, and whichever of these you want
 to use:
 
-- [Ollama](https://ollama.com) with the Hermes model: `ollama pull hermes3:8b`
-- A Gemini API key (Google AI Studio)
-- A Meta Model API key for Muse
 - [Claude Code](https://claude.com/claude-code), logged in (`claude` on your PATH)
+- The Antigravity CLI (`agy`), signed in with your Google account
+- Optional: [Ollama](https://ollama.com) with the Hermes model: `ollama pull hermes3:8b`
+- Optional: a Meta Model API key for Muse
+- Optional: a Gemini API key, only for the `gemini-api` agent
 
 ```bash
 git clone https://github.com/Bjay4910/multi-agent-memory-hub.git
@@ -61,34 +73,46 @@ pip install -e ".[dev]"
 
 ### Configuring keys
 
-Keys are read **only from environment variables**. Nothing is read from or
-written to a config file, and `.env` files are git-ignored. Export them in your
-shell (or your shell profile, or a secrets manager):
+The default agents need **no API keys**: `claude` and `gemini` use the logins
+of their CLIs. Keys for the opt-in API agents are read **only from environment
+variables**. Nothing is read from or written to a config file, and `.env` files
+are git-ignored:
 
 ```bash
-export GEMINI_API_KEY=...   # Gemini
-export MUSE_API_KEY=...     # Muse
+export MUSE_API_KEY=...     # muse
+export GEMINI_API_KEY=...   # gemini-api
 ```
 
-Claude needs no key: the adapter calls the `claude` CLI, which uses your
-existing Claude Code login. Hermes needs no key either.
-
 Error messages pass through a redaction step, so a key value never appears in
-the terminal, the session log or presence files.
+the terminal, the session log or presence files. Both CLI agents run with
+these key variables removed from their environment.
+
+### Choosing agents
+
+`room ask` uses the default agents (`claude,gemini`) unless told otherwise:
+
+- `--with muse` (or `--with muse,hermes`, repeatable) adds opt-in agents to
+  the list.
+- `--agents hermes,claude` replaces the list for one run.
+- `ROOM_DEFAULT_AGENTS=claude,gemini,hermes` changes the default list.
 
 ### Optional settings
 
-| Variable          | Default                      | Purpose |
-|-------------------|------------------------------|---------|
-| `GEMINI_MODEL`    | `gemini-4-hydrogen`          | Gemini model id |
-| `MUSE_MODEL`      | `muse-spark-1.1`             | Muse model id |
-| `MUSE_BASE_URL`   | `https://api.meta.ai/v1`     | Muse endpoint |
-| `MUSE_DAILY_TOKEN_LIMIT` | `200000`              | Max Muse tokens per UTC day (see below) |
-| `HERMES_MODEL`    | `hermes3:8b`                 | Ollama model |
-| `HERMES_BASE_URL` | `http://localhost:11434/v1`  | Ollama endpoint |
-| `CLAUDE_MODEL`    | CLI default                  | Passed as `claude --model` |
-| `CLAUDE_TIMEOUT`  | `180`                        | Seconds before the Claude CLI call is killed |
-| `AGENT_ROOM_HOME` | `~/.agent-room`              | Where presence and session files go |
+| Variable                 | Default                      | Purpose |
+|--------------------------|------------------------------|---------|
+| `ROOM_DEFAULT_AGENTS`    | `claude,gemini`              | Default agent list for `room ask` |
+| `AGY_BIN`                | `agy` on PATH, else `~/.local/bin/agy` | Antigravity CLI executable |
+| `AGY_MODEL`              | CLI default                  | Passed as `agy --model` (list with `agy models`) |
+| `AGY_TIMEOUT`            | `120`                        | Seconds before the `agy` process group is killed |
+| `CLAUDE_MODEL`           | CLI default                  | Passed as `claude --model` |
+| `CLAUDE_TIMEOUT`         | `180`                        | Seconds before the `claude` process group is killed |
+| `HERMES_MODEL`           | `hermes3:8b`                 | Ollama model |
+| `HERMES_BASE_URL`        | `http://localhost:11434/v1`  | Ollama endpoint |
+| `MUSE_MODEL`             | `muse-spark-1.1`             | Muse model id |
+| `MUSE_BASE_URL`          | `https://api.meta.ai/v1`     | Muse endpoint |
+| `MUSE_DAILY_TOKEN_LIMIT` | `200000`                     | Max Muse tokens per UTC day (see below) |
+| `GEMINI_MODEL`           | `gemini-4-hydrogen`          | Model for `gemini-api` |
+| `AGENT_ROOM_HOME`        | `~/.agent-room`              | Where presence, session and usage files go |
 
 ### Muse budget guard
 
@@ -118,18 +142,20 @@ room agents
 ```
 
 ```
-OK    hermes  model hermes3:8b at http://localhost:11434/v1
-OK    gemini  model gemini-4-hydrogen
-OK    muse    model muse-spark-1.1 at https://api.meta.ai/v1, budget 0/200000 tokens today
-OK    claude  Claude Code CLI 2.1.326 (login not verified)
+OK    claude     default  Claude Code CLI 2.1.326 (login not verified)
+OK    gemini     default  Antigravity CLI 1.5.10 (sign-in not verified)
+OK    hermes     opt-in   model hermes3:8b at http://localhost:11434/v1
+OK    muse       opt-in   model muse-spark-1.1 at https://api.meta.ai/v1, budget 696/200000 tokens today
+OK    gemini-api opt-in   model gemini-4-hydrogen
 ```
 
 Ask the room a question (replies print as they arrive, then the final answer):
 
 ```bash
-room ask "What are the trade-offs of event sourcing?"
+room ask "What are the trade-offs of event sourcing?"            # claude + gemini
+room ask "What are the trade-offs of event sourcing?" --with muse
 room ask "In one sentence, what is a graph database?" --agents hermes --rounds 1
-room ask "Design a cache for a REST API" --agents hermes,gemini,claude --rounds 3 --synth gemini
+room ask "Design a cache for a REST API" --with hermes,muse --rounds 3 --synth gemini
 ```
 
 See who is working right now (run it from a second terminal during `room ask`):
@@ -139,19 +165,28 @@ room status
 ```
 
 ```
-claude  idle     updated 41s ago  pid 48121
-gemini  working  updated 3s ago  pid 48121  session 20261117T114200Z-3fa9c1: round 2/2
-hermes  idle     updated 12s ago  pid 48121
+claude     idle     updated 41s ago  pid 48121
+gemini     working  updated 3s ago  pid 48121  session 20261117T114200Z-3fa9c1: round 2/2
 ```
 
-### How Claude is called
+### How the CLI agents are called
 
-The Claude adapter runs `claude -p` as a plain chat model: `--tools ""` (no
-shell, file reading or editing), `--strict-mcp-config` (no MCP servers),
-`--disable-slash-commands`, `--no-session-persistence`, and its own
-`--system-prompt`. It runs in an empty temporary directory, with the room's
-provider keys removed from its environment, and is killed after
-`CLAUDE_TIMEOUT` seconds.
+Both CLI agents run as plain chat models, each in an empty temporary
+directory with stdin closed, the room's provider keys removed from the
+environment, and a hard timeout that kills the whole process group.
+
+- **Claude:** `claude -p` with `--tools ""` (no shell, file reading or
+  editing), `--strict-mcp-config` (no MCP servers), `--disable-slash-commands`,
+  `--no-session-persistence` and its own `--system-prompt`.
+- **Gemini:** `agy` has no switch that removes tools, so tools are blocked in
+  layers. Headless print mode auto-denies every tool that needs permission (file
+  writes, shell, reads outside the workspace), and the adapter never passes
+  `--dangerously-skip-permissions`. It also passes a deny-all permissions rule
+  (`--settings '{"permissions":{"deny":["*"]}}'`), `--sandbox` and
+  `--disable-slash-commands`. `agy` has no system-prompt flag, so the room's
+  instructions are prepended to the prompt. ANSI codes and status lines are
+  stripped from the output. If `agy` answers with nothing (for example, because
+  a tool was denied), its stderr explanation becomes the error note.
 
 ## Development
 
@@ -159,8 +194,8 @@ provider keys removed from its environment, and is killed after
 pytest
 ```
 
-The test suite uses fake agents and a temporary `AGENT_ROOM_HOME`; it makes no
-network calls and no real model calls.
+The test suite uses fake agents, fake `claude`/`agy` executables and a
+temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 
 ## Roadmap
 

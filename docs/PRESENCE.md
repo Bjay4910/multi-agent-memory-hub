@@ -11,7 +11,7 @@ implements the writer side and a reference reader (`read_presence`).
 ~/.agent-room/presence/<agent>.json
 ```
 
-- `<agent>` is the agent name: `hermes`, `gemini`, `muse` or `claude`
+- `<agent>` is the agent name: `claude`, `gemini`, `hermes`, `muse` or `gemini-api`
   (new agents may be added; consumers should glob `*.json`, not hard-code names).
 - If the environment variable `AGENT_ROOM_HOME` is set, the base directory is
   `$AGENT_ROOM_HOME` instead of `~/.agent-room`.
@@ -27,7 +27,7 @@ One JSON object, UTF-8, with exactly these fields:
 | `agent`      | string  | Agent name, same as the file name without `.json`. |
 | `status`     | string  | `"working"` or `"idle"`. No other values. |
 | `task`       | string  | Short label of what the agent is doing, at most 120 characters. Empty string when idle. |
-| `pid`        | integer | PID of the `room` process that wrote the file (for `claude`, the `room` process, not the `claude` child). |
+| `pid`        | integer | PID of the `room` process that wrote the file (for the CLI agents `claude` and `gemini`, the `room` process, not the `claude`/`agy` child). |
 | `updated_at` | string  | ISO 8601 UTC timestamp with `Z` suffix and second precision, e.g. `"2026-11-17T11:42:05Z"`. |
 
 Example:
