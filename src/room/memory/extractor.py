@@ -259,7 +259,11 @@ def source_text(messages: list[Message], scope: str | None = None) -> str:
 
 
 def session_source(messages: list[Message]) -> str:
-    return "manual" if any(m.agent == "manual" for m in messages) else "session"
+    """Provenance source: 'clipboard' or 'manual' for notes, 'session' for room sessions."""
+    agents = {m.agent for m in messages}
+    if "clipboard" in agents:
+        return "clipboard"
+    return "manual" if "manual" in agents else "session"
 
 
 # -- config -------------------------------------------------------------------

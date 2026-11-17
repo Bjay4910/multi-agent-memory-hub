@@ -75,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     rem.add_argument("text", nargs="?", default="", help="the note (optional with --file)")
     rem.add_argument("--tag", action="append", default=[], help="tag for the note (repeatable)")
     rem.add_argument("--file", type=Path, help="read the note from a text or markdown file")
+    rem.add_argument("--clipboard", action="store_true", help="read the note from the clipboard (macOS pbpaste)")
+    rem.add_argument("--yes", action="store_true", help="with --clipboard: save without the y/N prompt")
 
     mem = sub.add_parser("memory", help="inspect and manage graph memory")
     msub = mem.add_subparsers(dest="memory_command", required=True)
@@ -206,11 +208,51 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 # -- remember ---------------------------------------------------------------------------
 
+def _clipboard_note(assume_yes: bool) -> str | None:
+    """Clipboard text, redacted, after a preview and a y/N confirmation. None means do not save."""
+    from .clipboard import MAX_CLIPBOARD_CHARS, ClipboardError, read_clipboard
+    from .memory.redact import redact_secrets
+
+    try:
+        raw = read_clipboard()
+    except ClipboardError as exc:
+        print(f"room remember: {exc}", file=sys.stderr)
+        return None
+    if not raw.strip():
+        print("room remember: the clipboard is empty", file=sys.stderr)
+        return None
+    if len(raw) > MAX_CLIPBOARD_CHARS:
+        print(f"room remember: the clipboard holds {len(raw):,} characters; the limit is {MAX_CLIPBOARD_CHARS:,}. "
+              "Save the relevant part to a file and use --file.", file=sys.stderr)
+        return None
+    text = redact_secrets(raw.strip())  # redact before anything is shown or stored
+    preview = text[:300] + ("..." if len(text) > 300 else "")
+    print(f"Clipboard: {len(raw):,} characters. Preview (secrets redacted):\n---\n{preview}\n---")
+    if not assume_yes:
+        try:
+            answer = input("Save this to memory? [y/N] ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Not saved.")
+            return None
+    return text
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     from .memory.paths import ensure_outside_repo
     from .memory.redact import redact_secrets
 
-    parts = [args.text.strip()] if args.text.strip() else []
+    if args.clipboard and (args.text.strip() or args.file):
+        print("room remember: use --clipboard on its own, without text or --file", file=sys.stderr)
+        return 2
+    if args.clipboard:
+        clip = _clipboard_note(args.yes)
+        if clip is None:
+            return 1
+        parts = [clip]
+    else:
+        parts = [args.text.strip()] if args.text.strip() else []
     if args.file:
         try:
             parts.append(args.file.expanduser().read_text(encoding="utf-8").strip())
@@ -224,10 +266,11 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if args.tag:
         body = f"Tags: {', '.join(args.tag)}\n\n{body}"
     content = redact_secrets(body)
-    session_id = f"manual-{new_session_id()}"
+    kind = "clipboard" if args.clipboard else "manual"
+    session_id = f"{kind}-{new_session_id()}"
     log = SessionLog(session_id)
     ensure_outside_repo(log.path)
-    message = Message(session_id, "manual", 0, "user", content)
+    message = Message(session_id, kind, 0, "user", content)
     log.append(message)
     print(f"Saved note {session_id} ({len(content)} characters) to {log.path}")
     run_extraction(session_id, [message])
