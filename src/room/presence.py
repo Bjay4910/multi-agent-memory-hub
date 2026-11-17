@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +17,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from . import paths
+from .fsutil import atomic_write_json
 
 STATUS_WORKING = "working"
 STATUS_IDLE = "idle"
@@ -53,19 +53,7 @@ def write_presence(agent: str, status: str, task: str = "", directory: Path | No
         "updated_at": _iso(_now()),
     }
     target = directory / f"{agent}.json"
-    fd, tmp = tempfile.mkstemp(prefix=f".{agent}.", suffix=".tmp", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(record, fh)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, target)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
+    atomic_write_json(target, record)
     return target
 
 
