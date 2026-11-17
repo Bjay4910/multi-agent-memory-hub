@@ -20,6 +20,7 @@ ROLE_USER = "user"  # the original task, round 0
 ROLE_AGENT = "agent"  # an agent's reply during a discussion round
 ROLE_NOTE = "note"  # system note, e.g. "gemini skipped: unreachable"
 ROLE_FINAL = "final"  # the synthesized final answer
+ROLE_MEMORY = "memory"  # recalled memory injected into prompts; never persisted
 
 
 def utc_now_iso() -> str:
@@ -74,8 +75,8 @@ def format_transcript(transcript: list[Message]) -> str:
     """Render the transcript as plain text for inclusion in a prompt."""
     lines = []
     for msg in transcript:
-        if msg.role == ROLE_USER:
-            continue  # the task is shown separately
+        if msg.role in (ROLE_USER, ROLE_MEMORY):
+            continue  # the task and recalled memory are shown separately
         if msg.role == ROLE_NOTE:
             lines.append(f"[round {msg.round}] (note) {msg.content}")
         else:

@@ -19,8 +19,7 @@ import asyncio
 import os
 import shutil
 
-from ..transcript import Message
-from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, build_prompt, redact
+from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, redact
 from .subprocess_cli import run_cli
 
 
@@ -55,9 +54,8 @@ class ClaudeCLIAgent(Agent):
             raise AgentError(f"claude: '{self.executable}' not found on PATH (install Claude Code)")
         return path
 
-    async def reply(self, task: str, transcript: list[Message]) -> str:
-        system, user = build_prompt(self.name, task, transcript)
-        cmd = build_command(self._resolve(), system, user, self.model)
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+        cmd = build_command(self._resolve(), system, prompt, self.model)
         try:
             code, out, err = await run_cli(cmd, self.timeout)
         except asyncio.TimeoutError:

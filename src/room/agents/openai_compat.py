@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
-from ..transcript import Message
 from ..usage import DailyBudget
-from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, build_prompt, redact
+from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, redact
 
 
 class OpenAICompatAgent(Agent):
@@ -19,7 +18,9 @@ class OpenAICompatAgent(Agent):
         timeout: float = DEFAULT_TIMEOUT_S,
         budget: DailyBudget | None = None,
         config_error: str | None = None,
+        supports_json_mode: bool = False,
     ) -> None:
+        self.supports_json_mode = supports_json_mode
         self.name = name
         self.budget = budget
         self.config_error = config_error
@@ -60,21 +61,22 @@ class OpenAICompatAgent(Agent):
             return f"{self.name}: HTTP {exc.status_code} from API: {redact(str(exc.message))}"
         return f"{self.name}: {type(exc).__name__}: {redact(str(exc))}"
 
-    async def reply(self, task: str, transcript: list[Message]) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
         reason = self.skip_reason()
         if reason:  # defence in depth; the orchestrator checks this first
             raise AgentError(reason)
-        system, user = build_prompt(self.name, task, transcript)
         client = self._get_client()
+        extra = {"response_format": {"type": "json_object"}} if json_output and self.supports_json_mode else {}
         try:
             resp = await client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                **extra,
             )
         except Exception as exc:  # noqa: BLE001 - every failure becomes a clean AgentError
             raise AgentError(self._describe(exc)) from None
         text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
-        self._record_usage(resp, len(system) + len(user), text)
+        self._record_usage(resp, len(system) + len(prompt), text)
         if not text:
             raise AgentError(f"{self.name}: empty response from model {self.model}")
         return text

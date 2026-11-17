@@ -23,8 +23,7 @@ import json
 import os
 import shutil
 
-from ..transcript import Message
-from .base import Agent, AgentError, build_prompt, redact
+from .base import Agent, AgentError, redact
 from .subprocess_cli import clean_output, run_cli
 
 DEFAULT_TIMEOUT_S = 120.0
@@ -69,9 +68,9 @@ class AntigravityGeminiAgent(Agent):
             raise AgentError(f"gemini: Antigravity CLI '{self.executable}' not found (install agy)")
         return path
 
-    async def reply(self, task: str, transcript: list[Message]) -> str:
-        system, user = build_prompt(self.name, task, transcript)
-        cmd = build_command(self._resolve(), f"{system}\n\n{user}", self.model)
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+        # agy has no system-prompt flag, so the instructions go first in the prompt.
+        cmd = build_command(self._resolve(), f"{system}\n\n{prompt}", self.model)
         try:
             code, out, err = await run_cli(cmd, self.timeout)
         except asyncio.TimeoutError:

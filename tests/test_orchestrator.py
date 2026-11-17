@@ -115,3 +115,25 @@ def test_presence_is_idle_after_run(isolated_home):
     run(Room([a], synthesizer=a, rounds=1))
     entries = read_presence()
     assert [(e.agent, e.status) for e in entries] == [("a", "idle")]
+
+
+def test_memory_block_injected_for_called_agents_only_and_not_persisted(isolated_home):
+    calls = []
+    a = FakeAgent("a", calls=calls)
+    skipped = FakeAgent("down", healthy=False, calls=calls)
+    block = "Relevant memory (may be outdated, verify):\n- fact"
+    result = asyncio.run(Room([a, skipped], synthesizer=a, rounds=1, memory_block=block).run("q", session_id="m"))
+    assert {c[0] for c in calls} == {"a"}  # the skipped agent never received anything
+    for _, _, seen in calls:
+        assert seen[0] == ("memory", "memory", block)
+    assert all(m.role != "memory" for m in result.transcript)
+    assert "Relevant memory" not in result.log_path.read_text()
+
+
+def test_build_prompt_puts_memory_first():
+    from room.agents.base import build_prompt
+    from room.transcript import Message
+
+    t = [Message("s", "memory", 0, "memory", "MEMORY BLOCK"), Message("s", "user", 0, "user", "Q?")]
+    _, user = build_prompt("claude", "Q?", t)
+    assert user.startswith("MEMORY BLOCK\n\nTask:\nQ?")

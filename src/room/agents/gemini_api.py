@@ -8,8 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from ..transcript import Message
-from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, build_prompt, redact
+from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, redact
 
 DEFAULT_MODEL = "gemini-4-hydrogen"
 
@@ -39,17 +38,19 @@ class GeminiAPIAgent(Agent):
         prefix = f"gemini-api: HTTP {code}: " if code else f"gemini-api: {type(exc).__name__}: "
         return prefix + redact(str(getattr(exc, "message", None) or exc))
 
-    async def reply(self, task: str, transcript: list[Message]) -> str:
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
         from google.genai import types
 
-        system, user = build_prompt(self.name, task, transcript)
         client = self._get_client()
         try:
             resp = await asyncio.wait_for(
                 client.aio.models.generate_content(
                     model=self.model,
-                    contents=user,
-                    config=types.GenerateContentConfig(system_instruction=system),
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system,
+                        response_mime_type="application/json" if json_output else None,
+                    ),
                 ),
                 timeout=self.timeout,
             )

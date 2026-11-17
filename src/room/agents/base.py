@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..transcript import Message, format_transcript
+from ..transcript import ROLE_MEMORY, Message, format_transcript
 
 DEFAULT_TIMEOUT_S = 180.0
 
@@ -26,9 +26,18 @@ class Agent(ABC):
 
     name: str
 
-    @abstractmethod
     async def reply(self, task: str, transcript: list[Message]) -> str:
         """Answer ``task`` given everything said so far. Raise AgentError on failure."""
+        system, user = build_prompt(self.name, task, transcript)
+        return await self.complete(system, user)
+
+    async def complete(self, system: str, prompt: str, *, json_output: bool = False) -> str:
+        """One raw completion with a custom system prompt (used by memory extraction).
+
+        ``json_output`` asks for a JSON object where the backend supports it.
+        Raise AgentError on failure.
+        """
+        raise AgentError(f"{self.name}: raw completions are not supported")
 
     @abstractmethod
     async def healthcheck(self) -> tuple[bool, str]:
@@ -46,11 +55,14 @@ class Agent(ABC):
 def build_prompt(name: str, task: str, transcript: list[Message]) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for one agent's turn."""
     system = SYSTEM_PROMPT.format(name=name)
+    memory = "\n\n".join(m.content for m in transcript if m.role == ROLE_MEMORY)
     history = format_transcript(transcript)
     if history:
         user = f"Task:\n{task}\n\nTranscript so far:\n{history}\n\nYour reply as {name}:"
     else:
         user = f"Task:\n{task}\n\nYou are the first to answer. Your reply as {name}:"
+    if memory:
+        user = f"{memory}\n\n{user}"
     return system, user
 
 

@@ -12,6 +12,7 @@ from .agents.base import Agent, redact
 from .transcript import (
     ROLE_AGENT,
     ROLE_FINAL,
+    ROLE_MEMORY,
     ROLE_NOTE,
     ROLE_USER,
     Message,
@@ -50,6 +51,7 @@ class Room:
         presence_dir: Path | None = None,
         heartbeat_interval: float = presence.HEARTBEAT_INTERVAL_S,
         check_health: bool = True,
+        memory_block: str | None = None,
     ) -> None:
         if rounds < 1:
             raise ValueError("rounds must be >= 1")
@@ -63,6 +65,7 @@ class Room:
         self.presence_dir = presence_dir
         self.heartbeat_interval = heartbeat_interval
         self.check_health = check_health
+        self.memory_block = memory_block or None
 
     async def run(self, task: str, session_id: str | None = None) -> RoomResult:
         session_id = session_id or new_session_id()
@@ -79,18 +82,25 @@ class Room:
 
         record("user", 0, ROLE_USER, task)
 
+        # Recalled memory is shown to every agent that is actually called, at the
+        # start of its prompt. It is not persisted, so it is never re-extracted.
+        memory = [Message(session_id, "memory", 0, ROLE_MEMORY, self.memory_block)] if self.memory_block else []
+
+        def view() -> list[Message]:
+            return memory + list(result.transcript)
+
         active = await self._reachable(self.agents, lambda note: record("room", 0, ROLE_NOTE, note))
 
         for round_ in range(1, self.rounds + 1):
             for agent in active:
                 label = f"session {session_id}: round {round_}/{self.rounds}"
-                text, error = await self._call(agent, task, list(result.transcript), label)
+                text, error = await self._call(agent, task, view(), label)
                 if error:
                     record("room", round_, ROLE_NOTE, f"{agent.name} skipped this round: {error}")
                 else:
                     record(agent.name, round_, ROLE_AGENT, text)
 
-        result.final = await self._synthesize(task, result, active, record)
+        result.final = await self._synthesize(task, result, active, record, view)
         return result
 
     async def _reachable(self, agents: list[Agent], note: Callable[[str], None]) -> list[Agent]:
@@ -126,7 +136,7 @@ class Room:
         except Exception as exc:  # noqa: BLE001
             return "", redact(str(exc)) or type(exc).__name__
 
-    async def _synthesize(self, task, result: RoomResult, active: list[Agent], record) -> Message | None:
+    async def _synthesize(self, task, result: RoomResult, active: list[Agent], record, view) -> Message | None:
         # Prefer the configured synthesizer; fall back to agents that replied.
         replied = {m.agent for m in result.transcript if m.role == ROLE_AGENT}
         candidates = [self.synthesizer] + [a for a in active if a.name in replied and a is not self.synthesizer]
@@ -138,7 +148,7 @@ class Room:
         synth_task = SYNTHESIS_TASK.format(task=task)
         for agent in candidates:
             label = f"session {result.session_id}: synthesis"
-            text, error = await self._call(agent, synth_task, list(result.transcript), label)
+            text, error = await self._call(agent, synth_task, view(), label)
             if not error:
                 return record(agent.name, self.rounds + 1, ROLE_FINAL, text)
             record("room", self.rounds + 1, ROLE_NOTE, f"synthesis by {agent.name} failed: {error}")

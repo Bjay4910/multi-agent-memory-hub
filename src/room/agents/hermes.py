@@ -17,4 +17,5 @@ class HermesAgent(OpenAICompatAgent):
             base_url=os.environ.get("HERMES_BASE_URL", DEFAULT_BASE_URL),
             model=os.environ.get("HERMES_MODEL", DEFAULT_MODEL),
             api_key="ollama",  # Ollama ignores the key, but the client requires one
+            supports_json_mode=True,  # Ollama honours response_format=json_object
         )
