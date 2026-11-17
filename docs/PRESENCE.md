@@ -11,7 +11,8 @@ implements the writer side and a reference reader (`read_presence`).
 ~/.agent-room/presence/<agent>.json
 ```
 
-- `<agent>` is the agent name: `claude`, `gemini`, `hermes`, `muse` or `gemini-api`
+- `<agent>` is the agent name: `claude`, `gemini`, `hermes`, `muse` or `gemini-api`,
+  or `memory` while graph-memory extraction runs after a session
   (new agents may be added; consumers should glob `*.json`, not hard-code names).
 - If the environment variable `AGENT_ROOM_HOME` is set, the base directory is
   `$AGENT_ROOM_HOME` instead of `~/.agent-room`.
@@ -43,6 +44,7 @@ built only from the session id and the step, in one of these forms:
 
 - `session <session_id>: round <n>/<total>`
 - `session <session_id>: synthesis`
+- `memory extraction: session <session_id>` (agent `memory`)
 
 ## Writer guarantees
 

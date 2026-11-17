@@ -4,10 +4,11 @@ A local "room" where several AI models work on the same question together.
 By default Claude and Gemini answer in turn; Hermes (running locally through
 Ollama) and Muse can be added per run. Every agent can read the shared
 transcript of what the others said, and after a configurable number of rounds
-one agent writes a synthesized final answer. While an agent is thinking, the
-room publishes a small presence file so other local tools can tell the machine
-is busy, and every message is saved to a JSON Lines session log that a future
-graph-memory layer will ingest.
+one agent writes a synthesized final answer. A local graph memory remembers
+facts about you and your work across sessions and adds the relevant ones to each
+agent's prompt. It runs on SQLite, with extraction by the local Hermes model,
+so by default it costs nothing. While an agent is thinking, the room publishes
+a small presence file so other local tools can tell the machine is busy.
 
 ## Architecture
 
@@ -24,6 +25,8 @@ flowchart LR
     S --> F[Final answer]
     O -. every message .-> L[(~/.agent-room/sessions/&lt;id&gt;.jsonl)]
     O -. working / idle + heartbeat .-> P[(~/.agent-room/presence/&lt;agent&gt;.json)]
+    DB[(~/.agent-room/memory.db<br/>SQLite + FTS5)] -->|recall: BM25 + neighbours,<br/>800-token block| O
+    L -->|after the session:<br/>redact, extract with Hermes,<br/>validate| DB
 ```
 
 - **Agents** (`src/room/agents/`): one adapter per model behind a common
@@ -41,6 +44,34 @@ flowchart LR
   [docs/PRESENCE.md](docs/PRESENCE.md).
 - **Session log**: one JSONL line per message. Format:
   [docs/SESSIONS.md](docs/SESSIONS.md).
+- **Graph memory** (`src/room/memory/`): a SQLite graph of people,
+  organizations, projects, decisions, facts, tasks, documents, preferences,
+  applications and skills, with provenance and an FTS5 index. Details:
+  [docs/MEMORY.md](docs/MEMORY.md).
+
+## Features
+
+- **Multi-agent room:** Claude and Gemini by default; Hermes, Muse and the
+  Gemini API on request. Every agent sees the full transcript, and one agent
+  synthesizes the final answer.
+- **Graph memory (local-first, free by default):**
+  - after each session, facts you state are extracted with Hermes into
+    `~/.agent-room/memory.db`
+  - secrets are redacted first
+  - output is checked against a strict JSON schema, with a repair prompt, an
+    optional fallback agent and a retry queue
+  - duplicates are merged; newer facts supersede older ones and history is kept
+  - before each call, relevant memory goes at the start of the prompt
+- **Memory tools:**
+  - `room remember` for notes from elsewhere, such as a resume or a summary of
+    another chat
+  - `room memory search/show/stats/forget/purge`
+  - `room brief` writes a context brief to paste into any chat app
+  - `room graph` exports Mermaid and HTML
+  - `room memory demo` loads made-up sample data
+- **Measured recall quality** with `room memory eval` (numbers below).
+- **Presence files** that a power manager can read, a Muse daily token budget,
+  and secret hygiene throughout.
 
 ### Agents
 
@@ -112,7 +143,13 @@ these key variables removed from their environment.
 | `MUSE_BASE_URL`          | `https://api.meta.ai/v1`     | Muse endpoint |
 | `MUSE_DAILY_TOKEN_LIMIT` | `200000`                     | Max Muse tokens per UTC day (see below) |
 | `GEMINI_MODEL`           | `gemini-4-hydrogen`          | Model for `gemini-api` |
-| `AGENT_ROOM_HOME`        | `~/.agent-room`              | Where presence, session and usage files go |
+| `AGENT_ROOM_HOME`        | `~/.agent-room`              | Where presence, session, usage and memory files go |
+| `MEMORY_EXTRACTOR`       | `hermes`                     | Memory extractor: `hermes` (local, free), `claude` or `gemini` |
+| `MEMORY_EXTRACTOR_FALLBACK` | unset                     | Second extractor to try if the first fails |
+| `MEMORY_EXTRACT_FROM`    | `user`                       | `user`: extract only your own words; `session`: also the final answer |
+| `MEMORY_EXTRACT_TIMEOUT` | `300`                        | Seconds before an extraction attempt is abandoned and queued |
+| `MEMORY_TOP_K`           | `8`                          | BM25 hits per recall (before neighbours are added) |
+| `MEMORY_TOKEN_BUDGET`    | `800`                        | Max size of the injected memory block (4 chars per token) |
 
 ### Muse budget guard
 
@@ -158,6 +195,100 @@ room ask "In one sentence, what is a graph database?" --agents hermes --rounds 1
 room ask "Design a cache for a REST API" --with hermes,muse --rounds 3 --synth gemini
 ```
 
+### Memory
+
+```bash
+room ask "Write one resume bullet per project" --show-memory   # print the injected memory block
+room ask "Something private" --no-memory                       # no recall, no extraction
+room remember "Summary of a chat with my advisor: ..." --tag advisor
+room remember --file ~/Documents/resume.md --tag resume
+room memory search "masters application"
+room memory show "Power Manager"      # or a node id; shows links, history and sources
+room memory stats
+room memory process                   # retry sessions whose extraction failed
+room memory forget 12
+room memory purge                     # asks you to type 'purge'
+room brief --for applications         # writes ~/.agent-room/briefs/applications-<date>.md
+room graph                            # writes ~/.agent-room/exports/graph.md and graph.html
+```
+
+Example `--show-memory` output from a real run:
+
+```
+--- injected memory ---
+Relevant memory (may be outdated, verify):
+- agent room (project, 2026-11-17): A project of the user.
+- power manager (project, 2026-11-17): Another project of the user.
+- Me (person, 2026-11-17): The user applying for a CS masters and jobs.
+Links:
+- Me works_on agent room
+- Me works_on power manager
+--- end memory ---
+```
+
+With that block, the agents wrote resume bullets for "Agent Room" and "Power
+Manager" even though the question only said "my projects". They also said
+they knew nothing beyond the project names, which was true.
+
+#### Demo data and the graph
+
+`room memory demo` loads a made-up dataset (a fictional student, university
+and startup) into a separate temp directory and prints the `AGENT_ROOM_HOME` to
+use. Your real memory is never touched. The diagram below is
+`room graph --out docs/demo-graph` run on that demo data
+([Mermaid source](docs/demo-graph.md)). Exports of real memory are refused
+inside the repository.
+
+![Memory graph of the made-up demo data](docs/demo-graph.png)
+
+### Recall evaluation
+
+`room memory eval` runs 25 questions with gold answers over a fixed synthetic
+graph of 25 active nodes, including 5 facts that changed over time. It makes no
+LLM calls, so the numbers are deterministic. Measured on this version:
+
+| Metric | Value |
+|--------|-------|
+| recall@3 | **0.853** |
+| recall@8 | **0.927** |
+| precision@3 | **0.440** (highest achievable with these gold sets: 0.533) |
+| MRR | **0.888** |
+| Stale facts leaked into the memory block | **0 / 5** (current fact present in 5 / 5) |
+
+Three questions miss a gold node in the top 8:
+- one is phrased without any word from the target node ("What am I studying
+  and what am I looking for?")
+- two list questions ("Which documents...", "Which companies...") each miss
+  one of their two or three answers
+
+Keyword search has no notion of meaning; see the limits below.
+`room memory eval --verbose` lists the misses.
+
+### Limits (read this before trusting memory)
+
+- **Memory is text added to prompts.** Agents see it at the start of their
+  prompt and may still ignore or misread it. Nothing is fine-tuned or
+  "learned".
+- **Quality depends on extraction and search.**
+  - **Extraction.** Hermes 8B is free and local but imprecise. In real runs it:
+    - invented a relation (now prevented by schema-constrained decoding)
+    - copied an organization name from an example in the prompt (examples are
+      now placeholders)
+    - stored guesses from the assistants' advice as facts (extraction now reads
+      only your own words by default)
+    - once filed a one-off request as a "project"
+    Check with `room memory search`, delete with `room memory forget`, or set
+    `MEMORY_EXTRACTOR=claude` for better extraction (this sends the redacted
+    text to that provider).
+  - **Search.** Recall is BM25 keyword search, not embeddings. A question that
+    shares no words with a stored fact will not find it.
+- **Supersede is name-based.** A changed fact replaces the old one only if the
+  extractor gives it the same type and name.
+- Timings in real runs (Apple Silicon, `hermes3:8b`): **1–5 s** per extraction
+  from your own words, about **10–13 s** with `MEMORY_EXTRACT_FROM=session`.
+
+### Presence
+
 See who is working right now (run it from a second terminal during `room ask`):
 
 ```bash
@@ -196,11 +327,15 @@ pytest
 
 The test suite uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
+It covers schema migrations, search, dedupe and supersede, the recall budget,
+redaction, extractor validation and repair, the queue, every CLI command, and a
+check that running every command from the repo directory writes nothing into
+the repository.
 
 ## Roadmap
 
-- **Graph memory (next):** ingest the session logs into a graph so agents can
-  recall facts and past discussions across sessions. Not built yet.
+- **Semantic recall (next):** add local embeddings next to BM25, so questions
+  that share no keywords with a stored fact can still find it. Not built yet.
 - **Presence-driven power manager (separate repo):** reads the presence files
   described in [docs/PRESENCE.md](docs/PRESENCE.md) to keep the machine awake
   while agents are working. Not built yet.
