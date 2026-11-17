@@ -9,7 +9,8 @@ No API key is involved. The CLI is invoked as a plain chat model:
 * ``--system-prompt``            replace the coding-agent prompt with a chat prompt
 
 It runs in a temporary empty directory so no project CLAUDE.md is picked up,
-and the room's provider keys are removed from its environment.
+and the room's provider keys are removed from its environment. A hard timeout
+(``CLAUDE_TIMEOUT``, default 180 s) kills the whole process group.
 """
 
 from __future__ import annotations
@@ -17,10 +18,10 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import tempfile
 
 from ..transcript import Message
-from .base import DEFAULT_TIMEOUT_S, SECRET_ENV_VARS, Agent, AgentError, build_prompt, redact
+from .base import DEFAULT_TIMEOUT_S, Agent, AgentError, build_prompt, redact
+from .subprocess_cli import run_cli
 
 
 def build_command(executable: str, system: str, prompt: str, model: str | None = None) -> list[str]:
@@ -54,33 +55,11 @@ class ClaudeCLIAgent(Agent):
             raise AgentError(f"claude: '{self.executable}' not found on PATH (install Claude Code)")
         return path
 
-    @staticmethod
-    def _child_env() -> dict[str, str]:
-        return {k: v for k, v in os.environ.items() if k not in SECRET_ENV_VARS}
-
-    async def _run(self, args: list[str], timeout: float) -> tuple[int, str, str]:
-        with tempfile.TemporaryDirectory(prefix="agent-room-claude-") as cwd:
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                cwd=cwd,
-                env=self._child_env(),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                proc.kill()
-                await proc.wait()
-                raise
-        return proc.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
-
     async def reply(self, task: str, transcript: list[Message]) -> str:
         system, user = build_prompt(self.name, task, transcript)
         cmd = build_command(self._resolve(), system, user, self.model)
         try:
-            code, out, err = await self._run(cmd, self.timeout)
+            code, out, err = await run_cli(cmd, self.timeout)
         except asyncio.TimeoutError:
             raise AgentError(f"claude: CLI timed out after {self.timeout:.0f}s") from None
         except OSError as exc:
@@ -96,7 +75,7 @@ class ClaudeCLIAgent(Agent):
     async def healthcheck(self) -> tuple[bool, str]:
         try:
             exe = self._resolve()
-            code, out, err = await self._run([exe, "--version"], timeout=20)
+            code, out, err = await run_cli([exe, "--version"], timeout=20)
         except AgentError as exc:
             return False, str(exc)
         except asyncio.TimeoutError:
