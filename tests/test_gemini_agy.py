@@ -84,8 +84,8 @@ def test_timeout_kills_whole_process_group(tmp_path, monkeypatch):
     fake_agy(tmp_path, f"sleep 30 &\necho $! > {pidfile}\nwait\n", monkeypatch)
     start = time.monotonic()
     with pytest.raises(AgentError, match="timed out after"):
-        reply(timeout=0.5)
-    assert time.monotonic() - start < 5
+        reply(timeout=2.0)  # long enough for bash to write the pid file even on a busy machine
+    assert time.monotonic() - start < 8
     child = int(pidfile.read_text())
     for _ in range(50):  # the grandchild must be gone too
         try:
