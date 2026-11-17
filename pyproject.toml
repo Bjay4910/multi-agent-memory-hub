@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-agent-memory-hub"
+version = "0.1.0"
+description = "Local multi-agent room: Hermes, Gemini, Muse and Claude collaborate through a shared transcript."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Barnabas James Gyampoh" }]
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.40",
+    "google-genai>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+room = "room.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
