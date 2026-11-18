@@ -154,6 +154,7 @@ these key variables removed from their environment.
 | `MEMORY_EXTRACT_TIMEOUT` | `300`                        | Seconds before an extraction attempt is abandoned and queued |
 | `MEMORY_TOP_K`           | `8`                          | BM25 hits per recall (before neighbours are added) |
 | `MEMORY_TOKEN_BUDGET`    | `800`                        | Max size of the injected memory block (4 chars per token) |
+| `MEMORY_VAULT`           | `~/.agent-room/vault`        | Vault folder for `room memory export` and the vault cleanup in `room memory purge` |
 
 ### Muse budget guard
 
@@ -212,7 +213,7 @@ room memory show "Power Manager"      # or a node id; shows links, history and s
 room memory stats
 room memory process                   # retry sessions whose extraction failed
 room memory forget 12
-room memory purge                     # asks you to type 'purge'
+room memory purge                     # asks you to type 'purge'; also clears the vault copy
 room brief --for applications         # writes ~/.agent-room/briefs/applications-<date>.md
 room graph                            # writes ~/.agent-room/exports/graph.md and graph.html
 room memory export                    # markdown vault in ~/.agent-room/vault (see below)

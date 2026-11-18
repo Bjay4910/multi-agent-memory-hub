@@ -62,7 +62,9 @@ class ExportResult:
 
 
 def default_vault() -> Path:
-    return paths.room_home() / "vault"
+    """``$MEMORY_VAULT`` if set, else ``~/.agent-room/vault``. Used by export and by purge."""
+    override = os.environ.get("MEMORY_VAULT", "").strip()
+    return Path(override).expanduser() if override else paths.room_home() / "vault"
 
 
 def git_work_tree(path: Path) -> Path | None:
@@ -74,11 +76,15 @@ def git_work_tree(path: Path) -> Path | None:
     return None
 
 
-def check_vault_location(vault: Path, allow_repo: bool = False) -> Path:
-    vault = Path(vault).expanduser().resolve()
+def _check_not_keys_dir(vault: Path) -> None:
     keys_dir = (Path.home() / ".config" / "agent-keys").resolve()
     if vault == keys_dir or keys_dir in vault.parents or vault in keys_dir.parents:
         raise VaultSafetyError(f"refusing to use {vault} as a vault: it overlaps the key directory")
+
+
+def check_vault_location(vault: Path, allow_repo: bool = False) -> Path:
+    vault = Path(vault).expanduser().resolve()
+    _check_not_keys_dir(vault)
     if not allow_repo:
         tree = git_work_tree(vault)
         if tree is not None:
@@ -183,10 +189,38 @@ def _read_manifest(vault: Path) -> list[str]:
         return []
 
 
-def _safe_rel(vault: Path, rel: str) -> Path | None:
-    """``vault/rel`` if it stays inside the vault (manifest entries are not trusted blindly)."""
-    target = (vault / rel).resolve()
-    return target if vault in target.parents else None
+def _managed_file(vault: Path, rel: str) -> Path | None:
+    """``vault/rel`` if it is a regular file reachable without leaving the vault.
+
+    Manifest entries are not trusted blindly: absolute paths, ``..``, and any
+    symlink along the way (a linked folder or a linked file) are rejected, so a
+    deletion can never reach outside the vault or through a link.
+    """
+    rel_path = Path(rel)
+    if not rel or rel_path.is_absolute() or ".." in rel_path.parts:
+        return None
+    current = vault
+    for part in rel_path.parts:
+        current = current / part
+        if current.is_symlink():
+            return None
+    return current if current.is_file() else None
+
+
+def _remove_managed(vault: Path, rels: list[str]) -> list[str]:
+    """Delete the given managed files, then any folders they leave empty (never the vault itself)."""
+    removed = []
+    for rel in sorted(set(rels)):
+        target = _managed_file(vault, rel)
+        if target is None:
+            continue
+        target.unlink()
+        removed.append(rel)
+        parent = target.parent
+        while parent != vault and not parent.is_symlink() and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
+    return removed
 
 
 def _write_private(target: Path, text: str) -> None:
@@ -244,17 +278,47 @@ def export_vault(vault: Path | None = None, include_superseded: bool = False, al
         _write_private(target, text)
 
     keep = set(managed)  # an earlier copy of a now-refused note is removed, not left stale
-    for rel in sorted(previous - keep):
-        target = _safe_rel(vault, rel)
-        if target is None:
-            continue
-        if target.exists():
-            target.unlink()
-            result.removed.append(rel)
-        parent = target.parent
-        if parent != vault and parent.exists() and not any(parent.iterdir()):
-            parent.rmdir()
+    result.removed = _remove_managed(vault, sorted(previous - keep))
 
     manifest = {"version": 1, "files": sorted(keep)}
     _write_private(vault / MANIFEST, json.dumps(manifest, indent=1) + "\n")
+    return result
+
+
+@dataclass
+class ClearResult:
+    vault: Path
+    found: bool = False  # a vault written by room exists at this path
+    removed: list[str] = field(default_factory=list)
+    vault_deleted: bool = False
+    skipped_reason: str = ""
+
+
+def has_managed_vault(vault: Path | None = None) -> bool:
+    vault = Path(vault or default_vault()).expanduser()
+    manifest = vault / MANIFEST
+    return vault.is_dir() and not vault.is_symlink() and manifest.is_file() and not manifest.is_symlink()
+
+
+def clear_vault(vault: Path | None = None) -> ClearResult:
+    """Delete what the exporter wrote: files in the manifest, ``index.md`` and the manifest.
+
+    Files the user added are kept, folders left empty are removed, and the
+    vault folder itself is removed only if nothing else remains in it. A vault
+    without a manifest was not written by room and is left alone.
+    """
+    vault = Path(vault or default_vault()).expanduser()
+    result = ClearResult(vault)
+    if vault.is_symlink():
+        result.skipped_reason = "the vault path is a symlink; not following it"
+        return result
+    if not has_managed_vault(vault):
+        return result
+    _check_not_keys_dir(vault.resolve())
+    result.found = True
+    rels = _read_manifest(vault) + [INDEX, MANIFEST]
+    result.removed = _remove_managed(vault, rels)
+    if not any(vault.iterdir()):
+        vault.rmdir()
+        result.vault_deleted = True
     return result

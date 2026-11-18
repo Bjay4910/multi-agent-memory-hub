@@ -34,7 +34,8 @@ room ask ──► recall (SQLite FTS5) ──► memory block at the start of e
 - **Control.** `room ask --no-memory` skips recall and extraction for a run.
   `room memory forget <id>` deletes a node and its links.
   `room memory purge` deletes the database, queue, briefs and exports after you
-  type `purge`. Session logs are kept.
+  type `purge`, and clears the files room wrote to the vault (see
+  [Vault export](#vault-export)). Session logs are kept.
 
 ## Storage: `~/.agent-room/memory.db`
 
@@ -156,7 +157,8 @@ read. No network calls and no model calls are made.
 > in readable form. Keep it private and on this machine. Don't put it in a
 > cloud-synced folder, a shared drive or a git repository.
 
-Layout (default `~/.agent-room/vault`):
+Layout (default `~/.agent-room/vault`; set `MEMORY_VAULT` to use another
+folder for both export and purge):
 
 ```
 vault/
@@ -185,9 +187,18 @@ vault/
   deletes notes for nodes that were forgotten, purged or are no longer
   exported. Only files listed in `.room-vault.json` are ever changed or
   deleted. Your own notes in the folder are left alone, and an existing file
-  that room didn't write is never overwritten. After `room memory purge`, run
-  the export again to empty the vault, or delete the folder: purge itself
-  doesn't touch the vault.
+  that room didn't write is never overwritten.
+- **`room memory forget` does not touch the vault.** The forgotten node's note
+  stays there until you run `room memory export` again.
+- **`room memory purge` clears the vault copy.** The confirmation prompt says
+  so, and afterwards purge prints how many vault files it removed. It deletes
+  only the files listed in `.room-vault.json`, plus `index.md` and the
+  manifest itself, then removes type folders left empty. Files you added are
+  kept, and so is the vault folder if anything of yours remains in it. It
+  clears only the default vault (or `$MEMORY_VAULT`): a vault exported
+  elsewhere with `--vault PATH` must be deleted by you, or cleared by running
+  purge with `MEMORY_VAULT=PATH`. A folder without a manifest was not written
+  by room and is left alone.
 
 Safety checks:
 
@@ -197,6 +208,10 @@ Safety checks:
   including this repository) is refused unless you pass
   `--i-know-this-is-a-repo`. A path overlapping `~/.config/agent-keys` is
   always refused; that directory is never read.
+- Deletions (by export or purge) follow no symlinks. A manifest entry that is
+  absolute, contains `..`, or reaches a file through a linked folder or a linked
+  file is skipped, so nothing outside the vault can be deleted. A vault path
+  that is itself a symlink is not cleared by purge.
 - Every note, including `index.md`, is passed through `redact_secrets`. The
   result is then checked with `find_secrets` (the same patterns, the configured
   key values and high-entropy tokens). A note that still matches is not

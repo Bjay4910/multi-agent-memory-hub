@@ -336,14 +336,21 @@ def cmd_memory(args: argparse.Namespace) -> int:
         results = asyncio.run(extractor.process_queue(agent_factory, lambda r: print(f"  {r.session_id}: {r.describe()}")))
         return 0 if all(r.status != "queued" for r in results) else 1
     if cmd == "purge":
+        from .memory.vault import VaultSafetyError, clear_vault, default_vault, has_managed_vault
+
         db = memory_db_path()
         targets = [Path(f"{db}{sfx}") for sfx in ("", "-wal", "-shm")]
         dirs = [queue_dir(), db.parent / "briefs", db.parent / "exports"]
-        if not any(p.exists() for p in targets + dirs):
+        vault = default_vault()
+        has_vault = has_managed_vault(vault)
+        if not any(p.exists() for p in targets + dirs) and not has_vault:
             print("No memory to purge.")
             return 0
         if not args.yes:
+            vault_line = (f"The exported vault copy in {vault} is cleared too (only files room wrote; "
+                          "your own files there are kept).\n") if has_vault else ""
             prompt = (f"This permanently deletes {db}, the retry queue, briefs and graph exports.\n"
+                      f"{vault_line}"
                       "Session logs are kept. Type 'purge' to confirm: ")
             try:
                 answer = input(prompt)
@@ -356,6 +363,13 @@ def cmd_memory(args: argparse.Namespace) -> int:
             p.unlink(missing_ok=True)
         for d in dirs:
             shutil.rmtree(d, ignore_errors=True)
+        if has_vault:
+            try:
+                cleared = clear_vault(vault)
+                kept = "" if cleared.vault_deleted else " (folder kept: it holds files you added)"
+                print(f"Vault: removed {len(cleared.removed)} file(s) from {vault}{kept}.")
+            except (VaultSafetyError, OSError) as exc:
+                print(f"Vault not cleared: {exc}", file=sys.stderr)
         print("Memory purged.")
         return 0
 
