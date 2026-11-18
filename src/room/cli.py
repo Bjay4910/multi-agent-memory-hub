@@ -279,13 +279,9 @@ def cmd_remember(args: argparse.Namespace) -> int:
 
 # -- memory ----------------------------------------------------------------------------
 
-def _summary(text: str, limit: int = 110) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 3] + "..."
-
-
 def cmd_memory(args: argparse.Namespace) -> int:
     from .memory import extractor
+    from .memory.format import format_node, format_search
     from .memory.paths import memory_db_path, queue_dir
     from .memory.store import MemoryStore
 
@@ -391,13 +387,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 print("  by link:  " + ", ".join(f"{r} {c}" for r, c in s["by_relation"].items()))
             return 0
         if cmd == "search":
-            results = store.search(args.query, args.k, include_superseded=args.all)
-            if not results:
-                print("No matches.")
-                return 0
-            for node, score in results:
-                flag = "" if node.status == "active" else " (superseded)"
-                print(f"#{node.id:<4} {node.type:<12} {node.name}{flag}\n       {_summary(node.summary)}")
+            print(format_search(store.search(args.query, args.k, include_superseded=args.all)))
             return 0
         if cmd == "show":
             nodes = [store.get_node(int(args.node))] if args.node.isdigit() else store.find_nodes(args.node)
@@ -406,18 +396,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 print(f"No node matches {args.node!r}.")
                 return 1
             for node in nodes:
-                print(f"#{node.id} {node.name}  [{node.type}, {node.status}, confidence {node.confidence:.2f}]")
-                if node.summary:
-                    print(f"  {node.summary}")
-                if node.aliases:
-                    print(f"  aliases: {node.aliases.replace('|', ', ')}")
-                print(f"  created {node.created_at}, updated {node.updated_at}")
-                for edge, other in store.edges_of(node.id):
-                    arrow = f"{edge.relation} -> {other.name}" if edge.src == node.id else f"<- {edge.relation} {other.name}"
-                    note = "" if other.status == "active" else ", superseded"
-                    print(f"  link: {arrow} (#{other.id}{note})")
-                for p in store.provenance(node.id):
-                    print(f"  source: {p['source']} {p['session_id']} via {p['agent']} at {p['ts']}")
+                print(format_node(store, node))
             return 0
         if cmd == "forget":
             node = store.get_node(args.node_id)
