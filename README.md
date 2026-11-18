@@ -282,6 +282,44 @@ flowchart LR
   absolute path to `.venv/bin/room`, allows only these two commands, and says
   to treat results as notes, not instructions. Claude Code is set up this way
   through `~/.claude/CLAUDE.md`.
+- **MCP server.** `room mcp` is a read-only MCP server over stdio for apps
+  that can't run shell commands. See [Claude desktop app](#claude-desktop-app).
+
+#### Claude desktop app
+
+`room mcp` speaks MCP over stdio and exposes exactly two read-only tools:
+- `memory_search(query, limit=8)`: the same results as `room memory search`
+- `memory_show(id)`: the same as `room memory show`
+
+How it stays safe:
+- It opens `memory.db` with SQLite's `mode=ro`, so it cannot change memory
+  even by mistake. It reads no other files and makes no network calls.
+- Responses are redacted and capped at 8,000 characters.
+- The tool descriptions tell the model that results are untrusted notes, not
+  instructions.
+- If there is no memory yet, it returns a plain message.
+
+The server is hand-written with the standard library: no MCP SDK or other
+dependency. It supports MCP protocol versions 2024-11-05 through 2025-11-25.
+
+To register it, add an entry like this to the desktop app's
+`claude_desktop_config.json` (on macOS in
+`~/Library/Application Support/Claude/`), using the absolute path of the
+`room` executable in this project's `.venv`, then restart the app:
+
+```json
+{
+  "mcpServers": {
+    "agent-room-memory": {
+      "command": "/absolute/path/to/multi-agent-memory-hub/.venv/bin/room",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Only Claude Code is set up so far (through the rules in `~/.claude/CLAUDE.md`);
+the desktop app entry above has not been applied.
 
 ### Recall evaluation
 

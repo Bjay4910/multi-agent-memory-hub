@@ -1,6 +1,6 @@
 """Command line entry point.
 
-``room agents | ask | status | remember | memory ... | brief | graph``
+``room agents | ask | status | remember | memory ... | brief | graph | mcp``
 """
 
 from __future__ import annotations
@@ -106,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     br = sub.add_parser("brief", help="write a markdown context brief to paste into any chat app")
     br.add_argument("--for", dest="purpose", choices=PURPOSES, default="applications")
     br.add_argument("--out", type=Path, help="output file (default: ~/.agent-room/briefs/<purpose>-<date>.md)")
+
+    sub.add_parser("mcp", help="read-only MCP server over stdio (memory_search, memory_show)")
 
     gr = sub.add_parser("graph", help="export the memory graph as Mermaid (.md) and HTML")
     gr.add_argument("--out", type=Path, help="output path without extension (default: ~/.agent-room/exports/graph)")
@@ -430,6 +432,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp() -> int:
+    from .mcp_server import serve
+
+    return serve()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     from .memory.paths import RepoWriteError
 
@@ -448,6 +456,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "memory": lambda: cmd_memory(args),
         "brief": lambda: cmd_brief(args),
         "graph": lambda: cmd_graph(args),
+        "mcp": cmd_mcp,
     }
     try:
         return handlers[args.command]()
