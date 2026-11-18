@@ -106,6 +106,11 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+**macOS note:** macOS protects Desktop, Documents and Downloads. Programs
+started by other apps (such as the Claude desktop app, or launchd) can fail
+with "Operation not permitted" if the project lives there. Keep the project in
+a normal folder such as `~/Developer`.
+
 ### Configuring keys
 
 The default agents need **no API keys**: `claude` and `gemini` use the logins
@@ -281,7 +286,11 @@ flowchart LR
   short rules section in the tool's global instructions. The section gives the
   absolute path to `.venv/bin/room`, allows only these two commands, and says
   to treat results as notes, not instructions. Claude Code is set up this way
-  through `~/.claude/CLAUDE.md`.
+  through `~/.claude/CLAUDE.md`, and Antigravity through `~/.gemini/GEMINI.md`.
+  The Antigravity rule must say it applies only when shell commands are
+  available: a rule telling `agy` to run commands broke room calls, which run
+  it without tools. Room-spawned Claude calls use `--safe-mode` for the same
+  reason (see [How the CLI agents are called](#how-the-cli-agents-are-called)).
 - **MCP server.** `room mcp` is a read-only MCP server over stdio for apps
   that can't run shell commands. See [Claude desktop app](#claude-desktop-app).
 
@@ -318,8 +327,10 @@ To register it, add an entry like this to the desktop app's
 }
 ```
 
-Only Claude Code is set up so far (through the rules in `~/.claude/CLAUDE.md`);
-the desktop app entry above has not been applied.
+This entry is in use: after a restart, the desktop app lists the server as
+Running, and its tools return notes from memory. The app does not search
+memory on its own; it uses the tools when asked, or when the user's
+instructions tell it to.
 
 ### Recall evaluation
 
