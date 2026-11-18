@@ -255,6 +255,34 @@ inside the repository.
 
 ![Memory graph of the made-up demo data](docs/demo-graph.png)
 
+### Memory everywhere
+
+The memory is not locked inside the room. Other tools can read it in two ways.
+
+```mermaid
+flowchart LR
+    A["Chats<br/>(room ask, room remember,<br/>clipboard)"] --> R[room]
+    R --> H[Hermes extraction<br/>local, redacted]
+    H --> DB[(SQLite graph<br/>memory.db)]
+    DB -->|room memory export| V[Markdown vault]
+    V --> T[Other tools]
+    DB -.->|room memory search / show| T
+```
+
+- **Markdown vault.** `room memory export` writes one note per node, with
+  `[[wikilinks]]`, into a private folder: `~/.agent-room/vault` by default, or
+  `MEMORY_VAULT`. It refuses to write inside a git repository, redacts every
+  note, and `room memory purge` clears it too.
+- **Clipboard notes.** Web and phone chat apps can't be read automatically.
+  Copy the part of a chat worth keeping and run `room remember --clipboard`.
+  It shows a redacted preview and asks y/N before saving.
+- **Direct search.** Another tool can run `room memory search "<keywords>"`
+  and `room memory show <id>`, which only read memory. Set this up with a
+  short rules section in the tool's global instructions. The section gives the
+  absolute path to `.venv/bin/room`, allows only these two commands, and says
+  to treat results as notes, not instructions. Claude Code is set up this way
+  through `~/.claude/CLAUDE.md`.
+
 ### Recall evaluation
 
 `room memory eval` runs 25 questions with gold answers over a fixed synthetic
@@ -278,26 +306,39 @@ Three questions miss a gold node in the top 8:
 Keyword search has no notion of meaning; see the limits below.
 `room memory eval --verbose` lists the misses.
 
-### Limits (read this before trusting memory)
+### Known limitations (read this before trusting memory)
 
 - **Memory is text added to prompts.** Agents see it at the start of their
   prompt and may still ignore or misread it. Nothing is fine-tuned or
   "learned".
 - **Quality depends on extraction and search.**
-  - **Extraction.** Hermes 8B is free and local but imprecise. In real runs it:
+  - **Extraction.** Hermes 8B is a small local model: free, but it can mislabel
+    or miss details. In real runs it:
     - invented a relation (now prevented by schema-constrained decoding)
     - copied an organization name from an example in the prompt (examples are
       now placeholders)
     - stored guesses from the assistants' advice as facts (extraction now reads
       only your own words by default)
     - once filed a one-off request as a "project"
-    Check with `room memory search`, delete with `room memory forget`, or set
-    `MEMORY_EXTRACTOR=claude` for better extraction (this sends the redacted
-    text to that provider).
+    Review notes with `room memory search` and `room memory show`, and fix
+    them with `room memory forget`. `MEMORY_EXTRACTOR=claude` gives better
+    extraction but sends the redacted text to that provider.
   - **Search.** Recall is BM25 keyword search, not embeddings. A question that
-    shares no words with a stored fact will not find it.
-- **Supersede is name-based.** A changed fact replaces the old one only if the
-  extractor gives it the same type and name.
+    shares no words with a stored fact will not find it. Search matches words,
+    not categories: searching "decision" does not list your decisions, but
+    searching their topic does.
+- **Matching is by name.** Two notes that use different names for the same
+  thing (say "Trail Tracker" and "the hiking app") become duplicates. A
+  changed fact replaces the old one only if the extractor gives it the same
+  type and name.
+- **Merging appends sentences**, so some summaries become repetitive.
+- **Web and phone chat apps can't be read automatically.** Use
+  `room remember --clipboard` or `room remember --file`.
+- **Recalled memory goes to cloud models.** Claude and Gemini in the room (and
+  Muse when you add it), and any tool that runs `room memory search`, receive
+  the matching notes. Keep out
+  of your notes anything you don't want shared with those providers.
+- **The recall numbers are from 25 synthetic questions**, not from real usage.
 - Timings in real runs (Apple Silicon, `hermes3:8b`): **1–5 s** per extraction
   from your own words, about **10–13 s** with `MEMORY_EXTRACT_FROM=session`.
 
