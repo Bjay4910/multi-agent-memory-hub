@@ -57,6 +57,22 @@ def test_claude_command_has_no_tools():
     assert cmd[-1] == "Task: hi"
 
 
+def test_claude_command_skips_global_user_instructions():
+    """--safe-mode keeps ~/.claude/CLAUDE.md out of room calls; --bare would break subscription logins."""
+    cmd = build_command("claude", "sys", "Task: hi", model="claude-sonnet-5-5")
+    assert "--safe-mode" in cmd and "--bare" not in cmd
+    assert cmd.index("--safe-mode") < cmd.index("--system-prompt")
+    assert cmd[-1] == "Task: hi"  # the prompt is still the last argument
+
+
+def test_claude_safe_mode_reaches_the_cli(tmp_path, monkeypatch):
+    log = tmp_path / "args"
+    script = _fake_cli(tmp_path, f'printf "%s\\n" "$@" > {log}\necho ok\n')
+    monkeypatch.setenv("CLAUDE_BIN", script)
+    assert asyncio.run(ClaudeCLIAgent().reply("q", [])) == "ok"
+    assert "--safe-mode" in log.read_text().splitlines()
+
+
 def test_claude_missing_binary(monkeypatch):
     monkeypatch.setenv("CLAUDE_BIN", "definitely-not-a-real-claude-binary")
     agent = ClaudeCLIAgent()

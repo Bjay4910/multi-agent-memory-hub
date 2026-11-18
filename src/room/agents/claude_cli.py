@@ -7,6 +7,12 @@ No API key is involved. The CLI is invoked as a plain chat model:
 * ``--disable-slash-commands``   no skills or slash commands
 * ``--no-session-persistence``   do not save the conversation as a resumable session
 * ``--system-prompt``            replace the coding-agent prompt with a chat prompt
+* ``--safe-mode``                skip the user's customizations, including the global
+                                 ``~/.claude/CLAUDE.md``, so personal rules written for
+                                 interactive sessions (such as "run room memory search")
+                                 never reach room calls. Login and model selection work
+                                 normally. (``--bare`` would also skip CLAUDE.md but
+                                 refuses subscription logins, so it is not used.)
 
 It runs in a temporary empty directory so no project CLAUDE.md is picked up,
 and the room's provider keys are removed from its environment. A hard timeout
@@ -31,6 +37,7 @@ def build_command(executable: str, system: str, prompt: str, model: str | None =
         "--strict-mcp-config",
         "--disable-slash-commands",
         "--no-session-persistence",
+        "--safe-mode",
         "--output-format", "text",
         "--system-prompt", system,
     ]
