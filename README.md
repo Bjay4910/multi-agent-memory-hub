@@ -391,9 +391,13 @@ the repository.
 
 - **Semantic recall (next):** add local embeddings next to BM25, so questions
   that share no keywords with a stored fact can still find it. Not built yet.
-- **Presence-driven power manager (separate repo):** reads the presence files
-  described in [docs/PRESENCE.md](docs/PRESENCE.md) to keep the machine awake
-  while agents are working. Not built yet.
+- **Presence-driven power manager (built, separate repo):**
+  [Agent-Aware Power Manager](https://github.com/Bjay4910/agent-aware-power-manager)
+  is a macOS menu-bar tool that keeps the Mac awake with the lid closed while
+  agents in this room are working, driven by the presence files described in
+  [docs/PRESENCE.md](docs/PRESENCE.md). It has 47 tests, its lid-closed test
+  passed twice for about 5 minutes (plugged in), and its runaway-process guard
+  only notifies by default.
 
 ## License
 
