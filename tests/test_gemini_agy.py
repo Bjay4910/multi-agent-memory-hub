@@ -54,6 +54,15 @@ def test_prompt_contains_room_instructions_and_task(tmp_path, monkeypatch):
     assert out.startswith("You are gemini") and "What is X?" in out
 
 
+def test_prompt_says_no_tools_before_the_task(tmp_path, monkeypatch):
+    from room.agents.gemini_agy import NO_TOOLS_NOTE
+
+    fake_agy(tmp_path, 'for a; do last="$a"; done; printf "%s" "$last"\n', monkeypatch)
+    out = reply()
+    assert NO_TOOLS_NOTE in out and "do not try to run anything" in NO_TOOLS_NOTE
+    assert out.index(NO_TOOLS_NOTE) < out.index("What is X?")
+
+
 def test_runs_in_empty_temp_dir_without_stdin_or_keys(tmp_path, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-value")
     monkeypatch.setenv("MUSE_API_KEY", "muse-test-value")

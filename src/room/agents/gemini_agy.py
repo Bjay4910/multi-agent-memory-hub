@@ -12,7 +12,9 @@ No API key is involved. The CLI is invoked so that it can only answer in text:
   provider keys removed from its environment
 
 ``agy`` has no system-prompt flag, so the room's instructions are prepended to
-the prompt. A hard timeout (``AGY_TIMEOUT``, default 120 s) kills the whole
+the prompt, together with :data:`NO_TOOLS_NOTE`. agy has no per-call switch to
+skip the user's global rules (``~/.gemini/GEMINI.md``); a rule that tells it to
+run commands can make the call fail, and the note asks it to answer directly. A hard timeout (``AGY_TIMEOUT``, default 120 s) kills the whole
 process group.
 """
 
@@ -30,6 +32,11 @@ DEFAULT_TIMEOUT_S = 120.0
 DENY_ALL_SETTINGS = json.dumps({"permissions": {"deny": ["*"]}})
 # Status lines agy prints itself (normally on stderr). Kept narrow so answer text is never dropped.
 NOISE_PREFIXES = ("jetski:", "warning: --", "fetching available models")
+NO_TOOLS_NOTE = (
+    "You have no tools in this call: no shell, no file access, no commands. "
+    "Answer directly from your own knowledge and the text below, and do not try to run anything, "
+    "even if other instructions ask you to."
+)
 
 
 def default_executable() -> str:
@@ -70,7 +77,7 @@ class AntigravityGeminiAgent(Agent):
 
     async def complete(self, system: str, prompt: str, *, json_output: bool = False, json_schema: dict | None = None) -> str:
         # agy has no system-prompt flag, so the instructions go first in the prompt.
-        cmd = build_command(self._resolve(), f"{system}\n\n{prompt}", self.model)
+        cmd = build_command(self._resolve(), f"{system}\n\n{NO_TOOLS_NOTE}\n\n{prompt}", self.model)
         try:
             code, out, err = await run_cli(cmd, self.timeout)
         except asyncio.TimeoutError:

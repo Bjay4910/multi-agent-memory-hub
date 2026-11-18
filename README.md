@@ -339,6 +339,12 @@ Keyword search has no notion of meaning; see the limits below.
   the matching notes. Keep out
   of your notes anything you don't want shared with those providers.
 - **The recall numbers are from 25 synthetic questions**, not from real usage.
+- **Antigravity loads your global rules in room calls.** `agy` has no per-call
+  switch to skip `~/.gemini/GEMINI.md`. A global rule that tells it to run
+  commands (such as `room memory search`) made room calls fail with exit code 3.
+  The room now tells `agy` it has no tools. Also word such a rule so it applies
+  only when shell commands are available, or keep it off. Claude is not
+  affected: the room calls it with `--safe-mode`.
 - Timings in real runs (Apple Silicon, `hermes3:8b`): **1–5 s** per extraction
   from your own words, about **10–13 s** with `MEMORY_EXTRACT_FROM=session`.
 
@@ -363,14 +369,20 @@ environment, and a hard timeout that kills the whole process group.
 
 - **Claude:** `claude -p` with `--tools ""` (no shell, file reading or
   editing), `--strict-mcp-config` (no MCP servers), `--disable-slash-commands`,
-  `--no-session-persistence` and its own `--system-prompt`.
+  `--no-session-persistence`, `--safe-mode` and its own `--system-prompt`.
+  `--safe-mode` keeps your global `~/.claude/CLAUDE.md` (and other personal
+  customizations) out of room calls, so rules written for interactive sessions,
+  such as "run `room memory search`", don't reach the room's Claude. Login and
+  model selection work normally. Interactive Claude Code sessions are not
+  affected and keep your rules.
 - **Gemini:** `agy` has no switch that removes tools, so tools are blocked in
   layers. Headless print mode auto-denies every tool that needs permission (file
   writes, shell, reads outside the workspace), and the adapter never passes
   `--dangerously-skip-permissions`. It also passes a deny-all permissions rule
   (`--settings '{"permissions":{"deny":["*"]}}'`), `--sandbox` and
   `--disable-slash-commands`. `agy` has no system-prompt flag, so the room's
-  instructions are prepended to the prompt. ANSI codes and status lines are
+  instructions are prepended to the prompt, with a line saying it has no tools
+  in this call and must answer directly without trying to run commands. ANSI codes and status lines are
   stripped from the output. If `agy` answers with nothing (for example, because
   a tool was denied), its stderr explanation becomes the error note.
 
