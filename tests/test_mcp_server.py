@@ -1,4 +1,7 @@
-"""`room mcp`: hand-written read-only MCP server. Temporary databases only; no network, no models."""
+"""`room mcp`: hand-written MCP server, search/show side. Temporary databases only; no network, no models.
+
+memory_remember is covered in test_mcp_remember.py.
+"""
 
 import hashlib
 import io
@@ -160,14 +163,21 @@ def test_readonly_refuses_missing_db_without_creating_it(tmp_path):
     assert not (tmp_path / "nope").exists()
 
 
-def test_only_two_tools_and_all_read_only():
+def test_exactly_three_tools_search_and_show_read_only():
     resp = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    tools = resp["result"]["tools"]
-    assert [t["name"] for t in tools] == ["memory_search", "memory_show"]
-    for t in tools:
-        assert t["annotations"]["readOnlyHint"] is True and t["annotations"]["destructiveHint"] is False
+    tools = {t["name"]: t for t in resp["result"]["tools"]}
+    assert list(tools) == ["memory_search", "memory_show", "memory_remember"]
+    for t in tools.values():
+        assert t["annotations"]["destructiveHint"] is False
         assert "not instructions" in t["description"] and "untrusted" in t["description"]
-    resp = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "memory_purge", "arguments": {}}})
+    assert tools["memory_search"]["annotations"]["readOnlyHint"] is True
+    assert tools["memory_show"]["annotations"]["readOnlyHint"] is True
+    assert tools["memory_remember"]["annotations"]["readOnlyHint"] is False
+
+
+@pytest.mark.parametrize("name", ["memory_purge", "memory_forget", "memory_delete", "memory_update", "memory_export"])
+def test_no_update_delete_forget_purge_or_export_tools(name):
+    resp = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name, "arguments": {}}})
     assert resp["error"]["code"] == -32602 and "Unknown tool" in resp["error"]["message"]
 
 
@@ -222,11 +232,16 @@ def test_serve_writes_only_json_to_stdout(db, monkeypatch, capsys):
     assert responses[0]["error"]["code"] == -32700 and responses[1]["error"]["code"] == -32600
     assert "Agent-Aware Power Manager" in responses[2]["result"]["content"][0]["text"]
     err = capsys.readouterr().err
-    assert "stray debug output" in err and "ready (read-only, stdio)" in err
+    assert "stray debug output" in err and "ready (search/show read-only, remember append-only, stdio)" in err
 
 
 def test_full_session_over_stdio_subprocess(db):
-    """Replay a real client session against `room mcp` in a child process."""
+    """Replay a real client session against `room mcp` in a child process.
+
+    memory_remember is not called here: in a real child it would start a real
+    `room memory process`. test_mcp_remember.py replays all three tools in-process
+    with the subprocess mocked.
+    """
     _, ids = db
     requests = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -250,9 +265,9 @@ def test_full_session_over_stdio_subprocess(db):
     assert [r["id"] for r in responses] == [1, 2, 3, 4, 5, 6]  # notification got no reply
     assert all(r["jsonrpc"] == "2.0" for r in responses)
     assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
-    assert [t["name"] for t in responses[1]["result"]["tools"]] == ["memory_search", "memory_show"]
+    assert [t["name"] for t in responses[1]["result"]["tools"]] == ["memory_search", "memory_show", "memory_remember"]
     assert "#" in responses[2]["result"]["content"][0]["text"] and "Power Manager" in responses[2]["result"]["content"][0]["text"]
     assert "Keeps the Mac awake" in responses[3]["result"]["content"][0]["text"]
     assert responses[4]["error"]["code"] == -32601
     assert responses[5]["result"] == {}
-    assert "ready (read-only, stdio)" in proc.stderr
+    assert "ready (search/show read-only, remember append-only, stdio)" in proc.stderr

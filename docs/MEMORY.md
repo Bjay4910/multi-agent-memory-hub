@@ -47,7 +47,7 @@ Migrations are versioned in `schema_version` (currently **2**) and applied in or
 |-------|---------|
 | `nodes` | `id`, `type`, `name`, `norm_name`, `summary`, `aliases` (`|`-separated), `status` (`active` / `superseded`), `confidence` (0–1), `created_at`, `updated_at` |
 | `edges` | `id`, `src` → nodes, `dst` → nodes, `relation`, `created_at`; unique on (`src`, `dst`, `relation`) |
-| `provenance` | `id`, `node_id` **or** `edge_id`, `session_id`, `agent` (the extractor), `source` (`session` / `manual` / `clipboard`), `ts` |
+| `provenance` | `id`, `node_id` **or** `edge_id`, `session_id`, `agent` (the extractor), `source` (`session` / `manual` / `clipboard` / `mcp-desktop`), `ts` |
 | `nodes_fts` | FTS5 over `name`, `summary`, `aliases` (Porter stemming), kept in sync by triggers |
 | `meta` | key/value; `demo=1` marks the made-up demo database |
 | `schema_version` | one row: the applied migration version |
@@ -174,7 +174,8 @@ vault/
   gets the same path; a renamed node gets a new path and the old note is removed.
 - **Frontmatter:** `id`, `type`, `name`, `created`, `updated`, `status`
   (`active` / `superseded`), `confidence`, `aliases`, and `sources` (a list of
-  `source:session_id`, where source is `session`, `manual` or `clipboard`).
+  `source:session_id`, where source is `session`, `manual`, `clipboard` or
+  `mcp-desktop`).
 - **Body:** the summary, then a `## Related` section with one line per edge:
   `- part_of [[projects/agent-room-2|Agent Room]]` for outgoing links and
   `- [[people/me-1|Me]] works_on this` for incoming ones. Links use the note
@@ -224,6 +225,16 @@ characters. It redacts the text, prints its size and a preview of the first
 `--yes` skips the question. The note is stored with source `clipboard` and
 extracted like any other `room remember` note. If Hermes/Ollama is not
 running, it is queued for `room memory process`.
+
+The MCP tool `memory_remember` (see the README's "Claude desktop app" section)
+is the third way in, for apps that can't run shell commands. It saves only
+when the user explicitly asks. The note is redacted, refused if a secret
+pattern still matches, and limited to 8,000 characters and 5 saves per minute
+per server process. It is written as `sessions/mcp-<timestamp>-<hex>.jsonl`
+(agent `mcp-desktop`, round 0, role `user`, content `Tags: <tag>` and the
+note) and queued. The server then starts `room memory process` in the
+background and does not wait; it never opens `memory.db` itself. Nodes
+extracted from it carry the source `mcp-desktop`.
 
 ## Reading the database from another tool
 

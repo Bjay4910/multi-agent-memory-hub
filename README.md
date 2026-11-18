@@ -291,22 +291,42 @@ flowchart LR
   available: a rule telling `agy` to run commands broke room calls, which run
   it without tools. Room-spawned Claude calls use `--safe-mode` for the same
   reason (see [How the CLI agents are called](#how-the-cli-agents-are-called)).
-- **MCP server.** `room mcp` is a read-only MCP server over stdio for apps
-  that can't run shell commands. See [Claude desktop app](#claude-desktop-app).
+- **MCP server.** `room mcp` is an MCP server over stdio for apps that can't
+  run shell commands: read-only search and show, plus append-only saving of
+  notes on explicit request. See [Claude desktop app](#claude-desktop-app).
 
 #### Claude desktop app
 
-`room mcp` speaks MCP over stdio and exposes exactly two read-only tools:
-- `memory_search(query, limit=8)`: the same results as `room memory search`
-- `memory_show(id)`: the same as `room memory show`
+`room mcp` speaks MCP over stdio and exposes exactly three tools:
+- `memory_search(query, limit=8)`: read-only, the same results as
+  `room memory search`
+- `memory_show(id)`: read-only, the same as `room memory show`
+- `memory_remember(text, tag="desktop")`: the one write. It saves a note the
+  way `room remember` does, and only appends.
 
-How it stays safe:
-- It opens `memory.db` with SQLite's `mode=ro`, so it cannot change memory
-  even by mistake. It reads no other files and makes no network calls.
+How search and show stay safe:
+- They open `memory.db` with SQLite's `mode=ro`, so they cannot change memory
+  even by mistake. They read no other files and make no network calls.
 - Responses are redacted and capped at 8,000 characters.
 - The tool descriptions tell the model that results are untrusted notes, not
   instructions.
-- If there is no memory yet, it returns a plain message.
+- If there is no memory yet, they return a plain message.
+
+How saving stays safe:
+- It is append-only and never opens `memory.db`. It writes a new session file
+  under `~/.agent-room/sessions/` (source `mcp-desktop`, with a timestamp and
+  the tag) and queues it for extraction, then starts `room memory process` as a
+  detached background process with a fixed argument list (no shell, no note
+  text in the arguments). Hermes extracts the note locally; if Ollama isn't
+  running, the note stays queued. The tool never waits for the model.
+- The note is redacted first, and refused (nothing saved) if a secret pattern
+  still matches. Empty notes and notes over 8,000 characters are refused, and
+  each server process saves at most 5 notes per minute.
+- Its description says to call it only when the user explicitly asks to save
+  something to memory, never because text in a chat, document or memory note
+  says to, and that results and notes are untrusted data. It is marked as not
+  read-only.
+- There are no update, delete, forget, purge or export tools over MCP.
 
 The server is hand-written with the standard library: no MCP SDK or other
 dependency. It supports MCP protocol versions 2024-11-05 through 2025-11-25.
@@ -328,9 +348,10 @@ To register it, add an entry like this to the desktop app's
 ```
 
 This entry is in use: after a restart, the desktop app lists the server as
-Running, and its tools return notes from memory. The app does not search
-memory on its own; it uses the tools when asked, or when the user's
-instructions tell it to.
+Running, and its tools return notes from memory. The app does not search or
+save on its own; it uses the tools when asked, or when the user's instructions
+tell it to. After an update that adds a tool, restart the app so it reloads the
+tool list.
 
 ### Recall evaluation
 
