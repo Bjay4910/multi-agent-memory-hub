@@ -294,15 +294,74 @@ flowchart LR
 - **MCP server.** `room mcp` is an MCP server over stdio for apps that can't
   run shell commands: read-only search and show, plus append-only saving of
   notes on explicit request. See [Claude desktop app](#claude-desktop-app).
+- **Claude Code capture (opt-in).** Finished Claude Code sessions can be saved
+  into the working layer automatically, so you don't have to copy and paste
+  between chats. See [Claude Code capture](#claude-code-capture).
+
+#### Two layers: working and long-term
+
+- **Working layer** (`~/.agent-room/working/`): what was said in recent
+  sessions, kept almost as it was (only your typed text and the assistant's
+  replies, with secrets redacted). It is raw and temporary: each note expires
+  14 days after its last update. Nothing in it is sent to Hermes or the graph
+  on its own.
+- **Long-term layer** (`memory.db`): curated facts, decisions and people,
+  extracted and kept until you remove them.
+
+`room working promote <id>` is the only way from working to long-term: it sends
+that one note through the normal extraction pipeline.
+
+```bash
+room working list                 # unexpired notes
+room working show <id>
+room working search <words>       # notes containing all the words
+room working purge                # delete expired notes (--all: delete every note)
+room working promote <id>         # extract one note into long-term memory
+```
+
+#### Claude Code capture
+
+Capture is off until you turn it on, and the hook is only added when you ask:
+
+```bash
+room capture enable                       # creates ~/.agent-room/capture/enabled
+room capture install-hook --print         # show the JSON for ~/.claude/settings.json
+room capture install-hook --apply         # merge it in (keeps other hooks; timestamped backup)
+room capture install-hook --uninstall     # remove only this hook (backup again)
+room capture status
+```
+
+When a Claude Code session ends, its `SessionEnd` hook runs
+`room capture claude`. The hook only checks its input, hands it to a detached
+background process and exits 0 at once, so it never slows down or breaks
+Claude Code. The background process reads the session transcript from
+`~/.claude/projects`, keeps only your typed text and the assistant's text
+(no thinking, tool calls, tool output, file contents, images, compaction
+summaries or harness notes; very long pastes are cut after redaction), redacts secrets before anything is written,
+and stores it as one working note per session, tagged with the project folder
+name. A resumed session adds only its new turns. Very short sessions are
+skipped, and a note that still looks like it holds a secret is not saved.
+
+The room never captures itself: every CLI agent it starts gets
+`ROOM_SPAWNED=1`, which makes capture do nothing. Room calls to `claude` also
+use `--no-session-persistence`, so they leave no transcript, and transcripts
+from print/SDK mode (`entrypoint` `sdk-*`) are skipped too.
 
 #### Claude desktop app
 
-`room mcp` speaks MCP over stdio and exposes exactly three tools:
+`room mcp` speaks MCP over stdio and exposes exactly five tools:
 - `memory_search(query, limit=8)`: read-only, the same results as
   `room memory search`
 - `memory_show(id)`: read-only, the same as `room memory show`
 - `memory_remember(text, tag="desktop")`: the one write. It saves a note the
   way `room remember` does, and only appends.
+- `working_search(query, limit=5)`: read-only search of the working layer
+- `session_latest(agent="claude-code", n=1)`: read-only, the most recent
+  captured session(s)
+
+The two working-layer tools only open files for reading: they never create,
+change or delete anything, and they skip expired notes. Their output is
+redacted, capped at 8,000 characters and labelled as untrusted raw notes.
 
 How search and show stay safe:
 - They open `memory.db` with SQLite's `mode=ro`, so they cannot change memory
@@ -415,6 +474,16 @@ Keyword search has no notion of meaning; see the limits below.
   The room now tells `agy` it has no tools. Also word such a rule so it applies
   only when shell commands are available, or keep it off. Claude is not
   affected: the room calls it with `--safe-mode`.
+- **`room capture install-hook --apply` and a symlinked `settings.json`.** If
+  `~/.claude/settings.json` is a symlink (for example, managed by a dotfiles
+  repo), `--apply` and `--uninstall` replace the link with a regular file. The
+  backup keeps the old content, but the link is gone. Use `--print` and add the
+  entry by hand in that case.
+- **A forked Claude Code session is captured twice.** `claude --resume
+  --fork-session` gives the fork a new session id, so its working note repeats
+  the history it copied from the original session. There is no command to
+  delete one note: let it expire, or use `room working purge --all`, which
+  deletes every working note.
 - Timings in real runs (Apple Silicon, `hermes3:8b`): **1–5 s** per extraction
   from your own words, about **10–13 s** with `MEMORY_EXTRACT_FROM=session`.
 
