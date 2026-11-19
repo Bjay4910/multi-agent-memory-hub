@@ -166,7 +166,7 @@ class Edge:
 class Provenance:
     session_id: str
     agent: str
-    source: str = "session"  # 'session', 'manual', 'clipboard' or 'mcp-desktop'
+    source: str = "session"  # 'session', 'manual', 'clipboard', 'mcp-desktop' or 'claude-code'
 
 
 class MemoryStore:

@@ -296,7 +296,7 @@ def test_replay_lists_three_tools_and_calls_each(db, capsys, isolated_home):
     responses = [json.loads(line) for line in out.getvalue().splitlines()]
     assert [r["id"] for r in responses] == [1, 2, 3, 4, 5, 6]
     assert "memory_remember" in responses[0]["result"]["instructions"]
-    assert [t["name"] for t in responses[1]["result"]["tools"]] == ["memory_search", "memory_show", "memory_remember"]
+    assert [t["name"] for t in responses[1]["result"]["tools"]] == ["memory_search", "memory_show", "memory_remember", "working_search", "session_latest"]
     texts = [r["result"]["content"][0]["text"] for r in responses[2:]]
     assert all(r["result"]["isError"] is False for r in responses[2:])
     assert "Agent-Aware Power Manager" in texts[0] and "Keeps the Mac awake" in texts[1]

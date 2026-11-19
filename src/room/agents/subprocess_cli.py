@@ -16,8 +16,14 @@ _SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷◐◓�
 
 
 def child_env() -> dict[str, str]:
-    """The current environment minus the room's provider API keys."""
-    return {k: v for k, v in os.environ.items() if k not in SECRET_ENV_VARS}
+    """The current environment minus the room's provider API keys, marked as room-spawned.
+
+    ``ROOM_SPAWNED=1`` tells ``room capture`` hooks running inside the child to do
+    nothing, so the room never captures its own CLI calls.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV_VARS}
+    env["ROOM_SPAWNED"] = "1"
+    return env
 
 
 def strip_ansi(text: str) -> str:

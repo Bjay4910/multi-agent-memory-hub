@@ -1,12 +1,13 @@
 """Command line entry point.
 
-``room agents | ask | status | remember | memory ... | brief | graph | mcp``
+``room agents | ask | status | remember | memory ... | working ... | capture ... | brief | graph | mcp``
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -107,7 +108,36 @@ def build_parser() -> argparse.ArgumentParser:
     br.add_argument("--for", dest="purpose", choices=PURPOSES, default="applications")
     br.add_argument("--out", type=Path, help="output file (default: ~/.agent-room/briefs/<purpose>-<date>.md)")
 
-    sub.add_parser("mcp", help="read-only MCP server over stdio (memory_search, memory_show)")
+    sub.add_parser("mcp", help="MCP server over stdio (read-only search/show tools, append-only memory_remember)")
+
+    wk = sub.add_parser("working", help="the working layer: raw, redacted session notes that expire after 14 days")
+    wsub = wk.add_subparsers(dest="working_command", required=True)
+    wsub.add_parser("list", help="list unexpired working notes")
+    wsh = wsub.add_parser("show", help="show one working note")
+    wsh.add_argument("note_id")
+    wse = wsub.add_parser("search", help="working notes containing all the given words")
+    wse.add_argument("words", nargs="+")
+    wse.add_argument("-k", type=positive_int, default=10, help="max results (default 10)")
+    wpu = wsub.add_parser("purge", help="delete expired working notes")
+    wpu.add_argument("--all", dest="everything", action="store_true", help="delete every working note")
+    wpr = wsub.add_parser("promote", help="send one working note through extraction into long-term memory")
+    wpr.add_argument("note_id")
+
+    cap = sub.add_parser("capture", help="opt-in capture of Claude Code sessions into the working layer")
+    csub = cap.add_subparsers(dest="capture_command", required=True)
+    ccl = csub.add_parser("claude", help="SessionEnd hook entry: reads the hook input on stdin; always exits 0")
+    ccl.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    ih = csub.add_parser("install-hook", help="print, merge in, or remove the Claude Code SessionEnd hook")
+    act = ih.add_mutually_exclusive_group(required=True)
+    act.add_argument("--print", dest="hook_action", action="store_const", const="print", help="print the JSON to add")
+    act.add_argument("--apply", dest="hook_action", action="store_const", const="install",
+                     help="merge the hook into settings.json (keeps everything else; makes a backup)")
+    act.add_argument("--uninstall", dest="hook_action", action="store_const", const="uninstall",
+                     help="remove only this hook from settings.json (makes a backup)")
+    ih.add_argument("--settings", type=Path, help="settings file (default: ~/.claude/settings.json)")
+    csub.add_parser("enable", help="turn capture on")
+    csub.add_parser("disable", help="turn capture off")
+    csub.add_parser("status", help="show whether capture is on and the hook is installed")
 
     gr = sub.add_parser("graph", help="export the memory graph as Mermaid (.md) and HTML")
     gr.add_argument("--out", type=Path, help="output path without extension (default: ~/.agent-room/exports/graph)")
@@ -166,8 +196,11 @@ def recall_block(task: str) -> str:
         return ""
 
 
-def run_extraction(session_id: str, messages: list[Message]) -> None:
-    """Extract a finished session into memory. Never raises; Ctrl-C queues the session."""
+def run_extraction(session_id: str, messages: list[Message]):
+    """Extract a finished session into memory. Never raises; Ctrl-C queues the session.
+
+    Returns the ExtractionResult, or None if it was interrupted or failed outright.
+    """
     from .memory.extractor import configured_extractors, enqueue, extract_session, session_source
 
     names, _ = configured_extractors()
@@ -176,6 +209,7 @@ def run_extraction(session_id: str, messages: list[Message]) -> None:
     try:
         result = asyncio.run(extract_session(session_id, messages, agent_factory))
         print(f"(memory) {result.describe()}", flush=True)
+        return result
     except KeyboardInterrupt:
         try:
             enqueue(session_id, session_source(messages), "interrupted by user")
@@ -184,6 +218,7 @@ def run_extraction(session_id: str, messages: list[Message]) -> None:
             print(f"(memory) skipped and could not queue: {exc}", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001
         print(f"(memory) extraction failed: {exc}", file=sys.stderr)
+    return None
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -432,6 +467,105 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+# -- working / capture --------------------------------------------------------------------
+
+def cmd_working(args: argparse.Namespace) -> int:
+    from .memory import working
+    from .memory.paths import ensure_outside_repo
+
+    cmd = args.working_command
+    try:
+        if cmd == "list":
+            notes = working.list_notes()
+            print(working.format_list(notes) if notes else "No working notes.")
+            return 0
+        if cmd == "search":
+            results = working.search(" ".join(args.words), args.k)
+            print(working.format_search(results) if results else "No working notes match.")
+            return 0
+        if cmd == "purge":
+            removed = working.purge(everything=args.everything)
+            print(f"Removed {removed} working note(s){'' if args.everything else ' (expired)'}.")
+            return 0
+        try:
+            note = working.get_note(args.note_id)
+        except ValueError:
+            print(f"room working: {args.note_id!r} is not a working note id", file=sys.stderr)
+            return 2
+        if note is None:
+            print(f"room working: no unexpired working note {args.note_id}", file=sys.stderr)
+            return 1
+        if cmd == "show":
+            print(working.format_note(note))
+            return 0
+        # promote: the only path from working into long-term memory
+        if note.get("promoted_at"):
+            print(f"room working: {note['id']} was already promoted on {note['promoted_at'][:10]}", file=sys.stderr)
+            return 1
+        from .transcript import load_session
+
+        session_id, messages = working.promotion_messages(note)
+        log = SessionLog(session_id)
+        ensure_outside_repo(log.path)
+        if log.path.exists():  # an earlier promote whose extraction did not finish: retry it as is
+            messages = load_session(log.path)
+        else:
+            for message in messages:
+                log.append(message)
+        print(f"Promoting {session_id} ({len(messages)} turns) through extraction...")
+        result = run_extraction(session_id, messages)
+        if result is not None and result.status == "stored":
+            working.mark_promoted(note["id"])
+            return 0
+        working.mark_promote_queued(note["id"])
+        print(f"room working: extraction did not finish, so {note['id']} is not marked promoted. "
+              "It is queued for `room memory process`; run `room working promote` again to retry.", file=sys.stderr)
+        return 1
+    except working.WorkingSafetyError as exc:
+        print(f"room working: {exc}", file=sys.stderr)
+        return 2
+
+
+def cmd_capture(args: argparse.Namespace) -> int:
+    from . import capture
+
+    cmd = args.capture_command
+    if cmd == "claude":
+        try:
+            raw = sys.stdin.read(capture.MAX_HOOK_INPUT + 1)
+        except Exception:  # noqa: BLE001 - the hook path always exits 0
+            return 0
+        return capture.run_worker(raw) if args.worker else capture.run_hook(raw)
+    if cmd == "install-hook":
+        if args.hook_action == "print":
+            print(json.dumps(capture.hook_config(), indent=2))
+            return 0
+        path = args.settings or capture.default_settings_path()
+        try:
+            print(capture.change_settings(path, args.hook_action))
+        except (capture.SettingsError, OSError) as exc:
+            print(f"room capture: {exc}; the file was not changed.", file=sys.stderr)
+            return 2
+        return 0
+    if cmd in ("enable", "disable"):
+        capture.set_enabled(cmd == "enable")
+        print(f"Claude Code capture: {'on' if cmd == 'enable' else 'off'}")
+        return 0
+    from .memory import working
+
+    print(f"Claude Code capture: {'on' if capture.is_enabled() else 'off'}")
+    settings = capture.default_settings_path()
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8")) if settings.is_file() else {}
+        groups = (data.get("hooks") or {}).get(capture.HOOK_EVENT) or []
+        installed = any(capture.is_our_hook(h) for g in groups if isinstance(g, dict) for h in g.get("hooks", []))
+        print(f"SessionEnd hook in {settings}: {'installed' if installed else 'not installed'}")
+    except (OSError, ValueError, AttributeError):
+        print(f"SessionEnd hook in {settings}: could not read the file")
+    print(f"Working notes: {len(working.list_notes())} unexpired")
+    return 0
+
+
 def cmd_mcp() -> int:
     from .mcp_server import serve
 
@@ -457,6 +591,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "brief": lambda: cmd_brief(args),
         "graph": lambda: cmd_graph(args),
         "mcp": cmd_mcp,
+        "working": lambda: cmd_working(args),
+        "capture": lambda: cmd_capture(args),
     }
     try:
         return handlers[args.command]()

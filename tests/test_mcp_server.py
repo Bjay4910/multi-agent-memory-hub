@@ -163,10 +163,10 @@ def test_readonly_refuses_missing_db_without_creating_it(tmp_path):
     assert not (tmp_path / "nope").exists()
 
 
-def test_exactly_three_tools_search_and_show_read_only():
+def test_exactly_five_tools_search_show_read_only_remember_writes():
     resp = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tools = {t["name"]: t for t in resp["result"]["tools"]}
-    assert list(tools) == ["memory_search", "memory_show", "memory_remember"]
+    assert list(tools) == ["memory_search", "memory_show", "memory_remember", "working_search", "session_latest"]
     for t in tools.values():
         assert t["annotations"]["destructiveHint"] is False
         assert "not instructions" in t["description"] and "untrusted" in t["description"]
@@ -265,7 +265,7 @@ def test_full_session_over_stdio_subprocess(db):
     assert [r["id"] for r in responses] == [1, 2, 3, 4, 5, 6]  # notification got no reply
     assert all(r["jsonrpc"] == "2.0" for r in responses)
     assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
-    assert [t["name"] for t in responses[1]["result"]["tools"]] == ["memory_search", "memory_show", "memory_remember"]
+    assert [t["name"] for t in responses[1]["result"]["tools"]] == ["memory_search", "memory_show", "memory_remember", "working_search", "session_latest"]
     assert "#" in responses[2]["result"]["content"][0]["text"] and "Power Manager" in responses[2]["result"]["content"][0]["text"]
     assert "Keeps the Mac awake" in responses[3]["result"]["content"][0]["text"]
     assert responses[4]["error"]["code"] == -32601
