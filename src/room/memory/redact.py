@@ -29,6 +29,10 @@ _LABEL_VALUE = re.compile(
 )
 # Long unbroken runs that look random (no '/', '.', so paths and URLs survive).
 _TOKEN_CANDIDATE = re.compile(r"[A-Za-z0-9_\-+=]{32,}")
+# The room's own session ids (see transcript.new_session_id), optionally with a note prefix.
+# Exempt from the high-entropy rule only when the WHOLE candidate run is exactly one id, so a
+# secret glued onto an id or a prefix still forms a longer run and is still caught.
+_OWN_SESSION_ID = re.compile(r"(?:(?:manual|clipboard|mcp|claude-code)-)?\d{8}T\d{6}Z-[0-9a-f]{6}")
 
 
 def _entropy(s: str) -> float:
@@ -37,6 +41,8 @@ def _entropy(s: str) -> float:
 
 
 def _looks_random(token: str) -> bool:
+    if _OWN_SESSION_ID.fullmatch(token):
+        return False
     has_digit = any(c.isdigit() for c in token)
     has_alpha = any(c.isalpha() for c in token)
     return has_digit and has_alpha and _entropy(token) >= 3.5
