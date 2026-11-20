@@ -236,9 +236,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--out", type=Path, help="write every run's details as JSON")
     parser.add_argument("--rescore", type=Path, help="score the nodes saved by an earlier --out instead of running")
+    parser.add_argument("--cases", type=Path, help="case file to use instead of the default set (e.g. heldout_cases.json)")
     args = parser.parse_args(argv)
     os.environ.setdefault("MEMORY_EXTRACTOR", "hermes")
-    cases = load_cases()
+    cases = load_cases(args.cases)
     by_id = {c["id"]: c for c in cases}
     saved = json.loads(args.rescore.read_text()) if args.rescore else None
     runs = []
@@ -249,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
             report = asyncio.run(run_all(cases))
         runs.append(report)
         print(f"run {i + 1}: {json.dumps(report.totals())}")
+        groups = sorted({by_id[c.case].get("group") for c in report.cases} - {None})
+        for g in groups:
+            sub = Report([c for c in report.cases if by_id[c.case].get("group") == g])
+            print(f"   group {g}: {json.dumps(sub.totals())}")
         for c in report.cases:
             print(f"   {c.case:24} found {c.found}/{c.expected}  nodes {c.counted_nodes} useful {c.useful_nodes}"
                   f"  unsupported {c.unsupported}  forbidden {c.forbidden}  dup {c.duplicates}  leaks {c.secret_leaks}  {c.status}"

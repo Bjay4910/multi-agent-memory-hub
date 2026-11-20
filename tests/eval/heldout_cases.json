@@ -1,0 +1,142 @@
+[
+  {
+    "id": "ab-quoted-preference",
+    "group": "ab",
+    "user": [
+      "> I prefer tabs over spaces for all my Go code."
+    ],
+    "expected": [["tabs"]],
+    "allowed": [["spaces"], ["go"]],
+    "forbidden": []
+  },
+  {
+    "id": "ab-warning-prose",
+    "group": "ab",
+    "user": [
+      "Warning: I am moving Trail Tracker to Rust next month."
+    ],
+    "expected": [["trail tracker", "rust"]],
+    "allowed": [["trail tracker"], ["rust"]],
+    "forbidden": []
+  },
+  {
+    "id": "ab-project-question",
+    "group": "ab",
+    "user": [
+      "Is Postgres right for Trail Tracker?"
+    ],
+    "expected": [["trail tracker"]],
+    "allowed": [],
+    "forbidden": ["decided", "chose", "is asking", "wants to know"]
+  },
+  {
+    "id": "ab-indented-after-prompt",
+    "group": "ab",
+    "user": [
+      "$ npm test\n  I switched Trail Tracker to Vitest"
+    ],
+    "expected": [["vitest"]],
+    "allowed": [["trail tracker"]],
+    "forbidden": ["npm test"]
+  },
+  {
+    "id": "ab-restated-question",
+    "group": "ab",
+    "user": [
+      "Which database should I pick for my recipe sharing site?"
+    ],
+    "answer": "Postgres works well here, and you could host it on Render.",
+    "expected": [],
+    "allowed": [["recipe"]],
+    "forbidden": ["which database", "pick", "decision", "deciding", "postgres", "render"]
+  },
+  {
+    "id": "control-chatter",
+    "group": "control",
+    "user": [
+      "hey",
+      "can you explain the difference between TCP and UDP?",
+      "cool thanks"
+    ],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["tcp", "udp", "thank", "greet"]
+  },
+  {
+    "id": "control-tool-output",
+    "group": "control",
+    "user": [
+      "what does this mean?\nError: ENOENT: no such file or directory, open 'config.json'\n    at Object.openSync (node:fs:601:3)",
+      "nvm, found it, thanks"
+    ],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["enoent", "config.json", "opensync", "thank"]
+  },
+  {
+    "id": "control-secret",
+    "group": "control",
+    "user": [
+      "I rotated the key for Lumen Budget, my personal finance app. New one is LUMEN_KEY={FAKE_SECRET}, don't lose it.",
+      "Lumen Budget now syncs with my bank every night."
+    ],
+    "expected": [["lumen budget"]],
+    "allowed": [["finance"], ["sync"], ["bank"]],
+    "forbidden": ["lumen_key"]
+  },
+  {
+    "id": "indep-debugging",
+    "group": "independent",
+    "user": [
+      "My Flask app Harbor Log keeps returning 502 behind nginx.",
+      "Turned out gunicorn was binding to port 8001 but nginx pointed at 8000. I changed the gunicorn config to 8000 and it works now."
+    ],
+    "expected": [["harbor log"], ["8000"]],
+    "allowed": [["flask"], ["nginx"], ["gunicorn"], ["502"]],
+    "forbidden": []
+  },
+  {
+    "id": "indep-planning",
+    "group": "independent",
+    "user": [
+      "Planning next quarter. I want to launch the beta of Quill Sync, my markdown sync tool, by April 15.",
+      "After the beta I'll write a Windows client, and Priya Shah will handle the marketing site."
+    ],
+    "expected": [["quill sync"], ["april"], ["priya"]],
+    "allowed": [["windows"], ["beta"], ["markdown"], ["marketing"]],
+    "forbidden": []
+  },
+  {
+    "id": "indep-preferences",
+    "group": "independent",
+    "user": [
+      "A few things about how I like to work: I use Neovim as my only editor and I prefer dark themes.",
+      "I only drink decaf after 2pm, and I'm vegetarian."
+    ],
+    "expected": [["neovim"], ["vegetarian"], ["decaf"]],
+    "allowed": [["dark"], ["editor"]],
+    "forbidden": []
+  },
+  {
+    "id": "indep-code-review",
+    "group": "independent",
+    "user": [
+      "Can you review this PR for Ledgerly, my invoicing tool?\n```python\ndef total(items):\n    return sum(i.price for i in items)\n```",
+      "Context: Ledgerly is written in Python with FastAPI, and our team rule is that every PR needs tests before merge."
+    ],
+    "expected": [["ledgerly"], ["fastapi"]],
+    "allowed": [["python"], ["invoicing"], ["test"], ["pr"]],
+    "forbidden": ["def total", "i.price"]
+  },
+  {
+    "id": "indep-career",
+    "group": "independent",
+    "user": [
+      "I start a new job at Corvid Analytics as a data engineer on January 6.",
+      "My manager there is Tom Okafor."
+    ],
+    "expected": [["corvid"], ["tom okafor"]],
+    "allowed": [["data engineer"], ["january"]],
+    "forbidden": []
+  }
+]

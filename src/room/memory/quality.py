@@ -2,14 +2,21 @@
 
 Before the model (``prefilter_messages``): drop chatter-only messages (greetings,
 thanks, "reply with just the word ...", impersonal general-knowledge questions) and
-tool noise (code fences, tracebacks, shell prompts, symbol-heavy lines). If nothing
-is left, the model is not called at all.
+tool noise (code fences, tracebacks, shell prompts, symbol-heavy lines). A leading
+"> " is a quote marker and is stripped, not dropped. Indented lines under a stack trace
+are dropped; indented lines under other tool output are dropped unless they speak in the
+first person. An impersonal question is dropped unless it names a multi-word Title Case
+name (likely the user's own project, e.g. "Is Postgres right for Trail Tracker?").
+If nothing is left, the model is not called at all.
 
 After the model (``clean_extraction``): keep only nodes that are
 - grounded: their ``evidence`` quote is in the user's own text (nodes with no
   evidence field, from backends without structured output, are kept as before;
   a blank quote is ungrounded),
 - worth keeping: not chatter, not the user's question restated, confidence >= 0.5,
+- not an open question: a node whose evidence is found only in a question sentence is
+  kept only if it is a project or application (the thing the user asks about); a
+  decision, task or preference read out of a question is dropped,
 - secret-free: any secret pattern in name, summary or evidence drops the node,
 - new: not the same name twice in one output, and not a fact the graph already holds
   under another name.
@@ -44,12 +51,21 @@ _QUESTION = re.compile(r"^\s*(what|how|why|who|when|where|which|can|could|should
 _FIRST_PERSON = re.compile(r"\b(i|i'm|im|i've|i'd|my|mine|me|we|we're|our|us)\b", re.I)
 _FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
 _NOISE_LINE = re.compile(
-    r"^\s*(Traceback \(most recent call last\):|File \".*\", line \d+|[A-Za-z_.]*(Error|Exception|Warning)(:|$)|"
-    r"\$ |% |> |>>> |at [\w.$<>]+\(.*:\d+\)|npm (ERR|WARN)|\[\d{1,2}:\d{2}(:\d{2})?\]|exit (code|status) \d+)")
+    r"^\s*(Traceback \(most recent call last\):|File \".*\", line \d+|[A-Za-z_.]+(Error|Exception|Warning)(:|$)|"
+    r"\$ |% |>>> |at [\w.$<>]+\(.*:\d+\)|npm (ERR|WARN)|\[\d{1,2}:\d{2}(:\d{2})?\]|exit (code|status) \d+)")
+# A bare "Error:" / "Warning:" line is tool output unless it speaks in the first person.
+_BARE_LEVEL = re.compile(r"^\s*(error|exception|warning|warn|fatal)\s*:", re.I)
+# Stack-trace lines: anything indented under them is part of the trace.
+_TRACE_LINE = re.compile(r"^\s*(Traceback \(most recent call last\):|File \".*\", line \d+|at [\w.$<>]+\(.*:\d+\))")
+_QUOTE_MARK = re.compile(r"^[ \t]*>[ \t]?(?!>)", re.M)
+_MULTIWORD_NAME = re.compile(r"\b[A-Z][\w-]*(?:\s+[A-Z][\w-]*)+\b")
+_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+QUESTION_ENTITY_TYPES = ("project", "application")
 _META_SUMMARY = re.compile(
     r"^\s*(the )?user\b[^.]*\b(asked|asks|is asking|was asking|wants to know|wanted to know|inquired|requested|"
     r"provided the instruction|instructed|greeted|said (hi|hello|thanks)|thanked|is speaking|who wrote|"
-    r"who is speaking|seeking advice|is seeking|asked about)\b", re.I)
+    r"who is speaking|seeking advice|is seeking|asked about|is making a decision|is deciding|is trying to decide|"
+    r"is wondering|is unsure|is not sure)\b", re.I)
 _CHATTER_FACT = re.compile(r"\b(greet(ed|ing|s)?|said (hi|hello)|thank(ed|s)? the|reply with just|the word (hi|hello))\b", re.I)
 
 
@@ -63,25 +79,33 @@ def _is_symbol_heavy(line: str) -> bool:
     return letters / len(stripped) < 0.6
 
 
+def _is_noise(line: str) -> bool:
+    if _NOISE_LINE.match(line) or _is_symbol_heavy(line):
+        return True
+    return bool(_BARE_LEVEL.match(line)) and not _FIRST_PERSON.search(line)
+
+
 def clean_message(text: str) -> str:
     """The message without code blocks and tool-noise lines; '' if it is only chatter."""
-    text = _FENCE.sub("\n", text or "")
-    lines = [ln for ln in text.splitlines() if not _NOISE_LINE.match(ln) and not _is_symbol_heavy(ln)]
-    # Lines indented under a traceback ("    connect(API_TOKEN)") are noise too.
-    kept, in_trace = [], False
+    text = _QUOTE_MARK.sub("", _FENCE.sub("\n", text or ""))
+    # Indented lines under noise: under a stack trace ("    connect(API_TOKEN)") they are always
+    # noise; under other tool output ("$ npm test") only when they do not speak in the first person.
+    kept, under = [], None  # under: None, "trace" or "output"
     for ln in text.splitlines():
-        if ln not in lines:
-            in_trace = True
+        if _is_noise(ln):
+            under = "trace" if _TRACE_LINE.match(ln) else ("output" if under is None else under)
             continue
-        if in_trace and ln.startswith((" ", "\t")):
+        if under and ln.startswith((" ", "\t")) and (under == "trace" or not _FIRST_PERSON.search(ln)):
             continue
-        in_trace = False
+        under = None
         kept.append(ln)
     cleaned = "\n".join(kept).strip()
     if not cleaned or _CHATTER.match(cleaned) or _TEST_PROMPT.match(cleaned):
         return ""
     if _QUESTION.match(cleaned) and not _FIRST_PERSON.search(cleaned):
-        return ""
+        rest = cleaned.split(None, 1)[1] if " " in cleaned.strip() else ""
+        if not _MULTIWORD_NAME.search(rest):  # "what is a hash map?" vs "Is Postgres right for Trail Tracker?"
+            return ""
     return cleaned
 
 
@@ -130,6 +154,16 @@ def low_value(node: dict) -> bool:
     return bool(_META_SUMMARY.search(node["summary"]) or _CHATTER_FACT.search(text))
 
 
+def statements_only(source: str) -> str:
+    """``source`` without its question sentences."""
+    return "\n".join(s for s in _SENTENCE.split(source) if s.strip() and not s.rstrip().endswith("?"))
+
+
+def from_question_only(node: dict, source: str, statements: str) -> bool:
+    """True if the node's evidence is found in a question of the user and nowhere else."""
+    return "evidence" in node and grounded(node, source) and not grounded(node, statements)
+
+
 def has_secret(node: dict) -> bool:
     return bool(find_secrets(" ".join(str(node.get(k) or "") for k in ("name", "summary", "evidence")))
                 or "[REDACTED]" in f"{node['name']} {node['summary']}")
@@ -158,7 +192,8 @@ def _known_elsewhere(node: dict, store: "MemoryStore | None") -> bool:
 
 def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None) -> tuple[dict, dict[str, int]]:
     """Filtered copy of validated extraction ``data`` and how many nodes each rule dropped."""
-    dropped = {"ungrounded": 0, "low_value": 0, "secret": 0, "duplicate": 0, "known": 0}
+    dropped = {"ungrounded": 0, "low_value": 0, "question": 0, "secret": 0, "duplicate": 0, "known": 0}
+    statements = statements_only(source)
     kept: dict[str, dict] = {}
     rank = {t: i for i, t in enumerate(TYPE_PRIORITY)}
     for n in data.get("nodes", []):
@@ -171,10 +206,15 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
         if low_value(n):
             dropped["low_value"] += 1
             continue
+        is_me = normalize_name(n["name"]) == "me"
+        question_only = from_question_only(n, source, statements)
+        if question_only and not is_me and n["type"] not in QUESTION_ENTITY_TYPES:
+            dropped["question"] += 1  # an open question is not a decision, task or preference
+            continue
         node = {k: n[k] for k in ("type", "name", "summary", "confidence")}
-        if normalize_name(node["name"]) == "me":
+        if is_me:
             node["type"] = "person"  # the user is always the person node "Me"
-        if normalize_name(node["name"]) == "me" and (_META_SUMMARY.search(node["summary"]) or _CHATTER_FACT.search(node["summary"])):
+        if is_me and (question_only or _META_SUMMARY.search(node["summary"]) or _CHATTER_FACT.search(node["summary"])):
             node["summary"] = ""
         key = normalize_name(node["name"])
         if key in kept:
