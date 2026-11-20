@@ -1,0 +1,192 @@
+[
+  {
+    "id": "reg-jwt-tokens",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "false-drop",
+    "note": "Plain technical word 'tokens' was dropped as secret talk before round 3.",
+    "user": ["Trail Tracker uses JWT tokens for mobile auth."],
+    "expected": [["trail tracker", "jwt"]],
+    "allowed": [["trail tracker"], ["jwt"], ["mobile"], ["auth"]],
+    "forbidden": []
+  },
+  {
+    "id": "reg-passvault",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "false-drop",
+    "note": "A project that is a password manager was dropped as secret talk.",
+    "user": ["I'm building PassVault, an offline password manager in Rust."],
+    "expected": [["passvault"]],
+    "allowed": [["password manager"], ["rust"], ["offline"]],
+    "forbidden": []
+  },
+  {
+    "id": "reg-muse-token-limit",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "false-drop",
+    "note": "A token limit is not a credential.",
+    "user": ["Muse has a daily limit of 200,000 tokens."],
+    "expected": [["muse", "limit"]],
+    "allowed": [["muse"], ["tokens"]],
+    "forbidden": []
+  },
+  {
+    "id": "reg-primary-key-rename",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "false-drop",
+    "note": "PRIMARY_KEY is a column name, not a credential variable.",
+    "user": ["We renamed PRIMARY_KEY to USER_ID in Harbor Log."],
+    "expected": [["harbor log", "user_id"]],
+    "allowed": [["harbor log"], ["primary_key"], ["user_id"]],
+    "forbidden": []
+  },
+  {
+    "id": "reg-premise-corvid",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "premise",
+    "note": "Factual premise before a question must be kept; the question itself must not be.",
+    "user": ["Since I am joining Corvid Analytics as a data engineer next month, what should I read?"],
+    "expected": [["corvid analytics"]],
+    "allowed": [["data engineer"]],
+    "forbidden": ["is asking", "wants to know", "what should"]
+  },
+  {
+    "id": "reg-premise-rust-go",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "premise",
+    "note": "Factual preference premise must be kept; the question (argument parser) must not be.",
+    "user": ["Since I prefer Rust over Go for CLI tools, which argument parser should I pick?"],
+    "expected": [["rust", "go"]],
+    "allowed": [["rust"], ["cli"]],
+    "forbidden": ["argument parser", "is asking", "wants to know"]
+  },
+  {
+    "id": "reg-noise-git-log",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "noise",
+    "note": "git log output with a blank line inside the block.",
+    "user": ["$ git log -n 2\n  a1b2c3 Fix typo\n\n  Signed-off-by: Release Bot"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["a1b2c3", "typo", "release bot", "signed"]
+  },
+  {
+    "id": "reg-noise-git-status",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "noise",
+    "note": "git status output.",
+    "user": ["$ git status\nOn branch main\nChanges not staged for commit\nmodified: src/app.py"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["branch", "staged", "app.py", "modified"]
+  },
+  {
+    "id": "reg-noise-us-and-i",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "noise",
+    "note": "Log lines that contain 'us' and 'i' are not the speaker talking.",
+    "user": ["Warning: region us failed health check\nError: variable i is not defined in loop"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["region", "health check", "variable", "loop"]
+  },
+  {
+    "id": "reg-noise-apt",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "noise",
+    "note": "apt 'I:' lines are log prefixes, not the speaker.",
+    "user": ["$ apt-get install pkg\n  I: Installing package dependencies\n  I [main] worker started"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["installing", "dependencies", "worker", "apt"]
+  },
+  {
+    "id": "reg-noise-go-panic",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "noise",
+    "note": "Go panic trace.",
+    "user": ["panic: runtime error: index out of range [3] with length 3\n\ngoroutine 1 [running]:\nmain.main()\n\t/home/dev/app/main.go:12 +0x1d\nexit status 2"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["panic", "goroutine", "main.go", "index out of range", "runtime error"]
+  },
+  {
+    "id": "reg-noise-info-debug",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "noise",
+    "note": "INFO/DEBUG log lines.",
+    "user": ["INFO: Started server process [4821]\nDEBUG: loading config from /etc/app.yaml"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["server process", "4821", "app.yaml", "config"]
+  },
+  {
+    "id": "reg-we-migrated",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "speaker",
+    "note": "An indented 'We ...' line with a Title Case project name under a prompt is the speaker.",
+    "user": ["$ pytest\n  We migrated Harbor Log to pytest last week."],
+    "expected": [["harbor log", "pytest"]],
+    "allowed": [["harbor log"], ["pytest"]],
+    "forbidden": []
+  },
+  {
+    "id": "reg-windows-path",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "speaker",
+    "note": "A Windows path ending in a backslash must not swallow the next line as a continuation.",
+    "user": ["My repo lives at C:\\Users\\alex\\\nI am migrating Trail Tracker to Rust."],
+    "expected": [["trail tracker", "rust"]],
+    "allowed": [["trail tracker"], ["rust"], ["repo"]],
+    "forbidden": []
+  },
+  {
+    "id": "reg-hypo-premise",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "hypothetical",
+    "note": "Hypothetical premise: nothing about UCSB may be stored.",
+    "user": ["Suppose I am accepted at UCSB, what should I do first?"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["ucsb", "accepted"]
+  },
+  {
+    "id": "reg-hypo-project-if",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "hypothetical",
+    "note": "Hypothetical question: no Trail Tracker project may be stored.",
+    "user": ["If I build Trail Tracker, which stack should I use?"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["trail tracker", "stack"]
+  },
+  {
+    "id": "reg-hypo-project-what-if",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "hypothetical",
+    "note": "Hypothetical question: no Harbor Log project and no Rust rebuild may be stored.",
+    "user": ["What if I rebuild Harbor Log in Rust, would that help?"],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["harbor log", "rust"]
+  },
+  {
+    "id": "reg-gap-could-question",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "known-gap",
+    "note": "Found in Stage 5c probes (follow-up to the reviewer hypothetical finding), not by the reviewer. KNOWN GAP (documented, not fixed): 'could' is on the hypothetical word list, so this plain question loses its project. Expected honestly as a fact; a miss here is the gap.",
+    "user": ["Which database could Harbor Log use?"],
+    "expected": [["harbor log"]],
+    "allowed": [],
+    "forbidden": ["database", "is asking", "wants to know"]
+  },
+  {
+    "id": "reg-gap-hypo-no-question-mark",
+    "label": "regression: found by reviewer, not held-out",
+    "group": "known-gap",
+    "note": "Found in Stage 5c probes (follow-up to the reviewer hypothetical finding), not by the reviewer. KNOWN GAP (documented, not fixed): a hypothetical without '?' is not recognised, so a Harbor Log project may be stored. A forbidden hit here is the gap.",
+    "user": ["If I build Harbor Log I will write it in Go."],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["harbor log"]
+  }
+]

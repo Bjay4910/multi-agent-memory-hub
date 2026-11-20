@@ -99,20 +99,34 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    tracebacks, shell prompts and symbol-heavy lines. The exact rules:
    - A leading `> ` is a quote mark and is stripped, so "> I prefer tabs over
      spaces" is kept.
-   - A line ending in a backslash, and the line after it, are a shell command
-     split over lines and are dropped ("> --rm -it \" too).
-   - A bare `Warning:` or `Error:` line is kept only if it has a first-person
-     pronoun as a whole word ("Warning: I am moving Trail Tracker to Rust").
-     "I/O", "me/utils" and similar do not count, and `RuntimeError: ...` is
-     always dropped.
-   - The indented block under a noise line belongs to it until the next line
-     that is not indented. Under a stack trace the whole block is dropped.
-     Under other tool output (`$ npm test`) a line is kept only if it starts
-     with you speaking ("I ...", "I'm ...", "My ..."), so "  I switched Trail
-     Tracker to Vitest" is kept, while "  Tests: 1 failed" and even "  we
-     expected 3 but got 4" are dropped.
+   - A line ending in a space and a backslash, and the line after it, are a
+     shell command split over lines and are dropped (`docker run \`,
+     `> --rm -it \`). A backslash with no space before it, as in
+     `C:\Users\alex\`, does not continue anything.
+   - A bare level line (`Error:`, `Warning:`, `Fatal:`, `Critical:`, `Info:`,
+     `Debug:`, `Trace:`, `Notice:`) is kept only if the text after the colon
+     opens with you speaking (see below): "Warning: I am moving Trail Tracker to
+     Rust" is kept; "Warning: region us failed health check", "Error: variable
+     i is not defined" and "INFO: Started server" are dropped.
+     `RuntimeError: ...` is always dropped.
+   - Also dropped: git status and git log output ("On branch main", "Changes
+     not staged for commit", "modified: src/app.py", "commit 1a2b3c4",
+     "Signed-off-by: ..."), Go panics ("panic: ...", "goroutine 1 [running]:"),
+     source locations ("main.go:12 +0x1d", "main.c:12:5:") and bare call frames
+     ("main.main()").
+   - The indented block under a noise line belongs to it, blank lines
+     included, until the next line that is neither indented nor blank. Under a
+     stack trace (Python, JS/Java, Go panic) the whole block is dropped; a new
+     `$ ` prompt ends the trace and starts a new output block. Under other
+     tool output (`$ npm test`) a line is kept only if it opens with you
+     speaking: "I", "I'm", "I've", "I'd", "I'll", "im" or "My" followed by a
+     word, or "We"/"Our" when the line also names a multi-word Title Case name.
+     So "  I switched Trail Tracker to Vitest" and "  We migrated Harbor Log to
+     pytest last week." are kept, while "  Tests: 1 failed", "  we expected 3
+     but got 4", "  I: Installing ..." and "  I [main] worker started" are
+     dropped.
    - An impersonal definition question ("what is / what's / who is / define /
-     explain / describe / tell me about / how does ... work") is dropped,
+     explain / how does ... work") is dropped,
      whatever it names ("What is Apache Kafka?"). Any other impersonal question
      is dropped unless it names a multi-word Title Case name, which is probably
      your own project ("Is Postgres right for Trail Tracker?",
@@ -138,15 +152,58 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    evidence appears only inside one of your questions and it is not a project or
    application (an open question is not a decision or task: from "What should I
    name my budgeting app?" the budgeting app is kept, "Name Budgeting App" is
-   not; this also drops requests such as "Review PR for Ledgerly"), when its
-   confidence is below 0.5, or
+   not; this also drops requests such as "Review PR for Ledgerly"). A clause
+   before the last comma of a question counts as a statement only if it opens
+   with a factual marker (since, because, as a / as an, as someone who, now
+   that, given that, seeing that, considering that) and holds none of the
+   words if, suppose, supposing, assume, assuming, imagine, hypothetically,
+   say, would, could, might, were, in case, unless, whether, provided. So
+   "Since I am joining Corvid Analytics as a data engineer next month, what
+   should I read?" and "Now that I have joined Corvid Analytics, what should I
+   read?" keep Corvid Analytics, while "If I joined Google next year, what
+   should I learn?", "Suppose I am accepted at UCSB, ...", "Assuming I get the
+   offer from Corvid Analytics, ...", "What if I switch to Go, would that
+   help?", "Say I were a data engineer at Corvid, ...", "Imagine I prefer Vue,
+   ...", "Hypothetically, I joined Stripe, ..." and "Would it help if I
+   learned Rust, ...?" store nothing from the premise. The question part is
+   never a statement. A question that holds one of those hypothetical words
+   does not even keep the project or application it names: "If I build Trail
+   Tracker, which stack should I use?" stores no Trail Tracker project, while
+   "Which database should Harbor Log use?" still keeps Harbor Log. A node is also dropped when its confidence is below
+   0.5, or
    when any secret pattern matches its name, summary or evidence, or when its
-   name or summary talks about a secret even without the value ("User's secret
-   token", "User set ANTHROPIC_API_KEY": the words secret, token, API key,
-   access key, password, passphrase, credential, private key, or a variable
-   name ending in `_KEY`, `_TOKEN`, `_SECRET`, `_PASSWORD`); for "Me" only the
-   summary is emptied. A bare "key" ("rotated the key for Lumen Budget") is not
-   matched. The same name
+   name or summary is secret talk; for "Me" only the summary is emptied. Secret
+   talk is exactly one of:
+   - a credential value: a label followed by `=` and one token
+     ("API_KEY=abcd1234", "client_secret = xyz"); or a label followed by `:`,
+     `is` or `was` and a value that runs to the end of the clause ("pwd:
+     orange", "the password is swordfish", "my passphrase is blue sky mining"),
+     with or without digits or "my"; or `Authorization: ...` / `Bearer <value>`.
+     A value that starts with a status word is not a secret ("the token is
+     valid for one hour"; the words are valid, invalid, expired, expiring,
+     required, optional, missing, empty, unset, set, revoked, stored, saved,
+     hashed, encrypted, generated, rotated, needed, used, being, not, now,
+     still, too, in, on, at, for, from, of, a, an, the, signed, issued, sent,
+     passed, checked, validated, verified, refreshed, cached). The labels are
+     client secret, secret key, api key, access key, private key, passphrase,
+     passcode, password, passwd, pwd, secret and token; in each, a space may
+     also be `_` or `-` (api key, api_key, api-key), and a variable prefix is
+     allowed (`DB_PASSWD`, `GH_PAT`; `pat` only with a prefix);
+   - a credential variable name with one of these suffixes: `_API_KEY`,
+     `_ACCESS_KEY`, `_SECRET_KEY`, `_PRIVATE_KEY`, `_CLIENT_SECRET`, `_SECRET`,
+     `_TOKEN`, `_PASSWORD`, `_PASSWD`, `_PAT` ("User set ANTHROPIC_API_KEY");
+     `PRIMARY_KEY` and `MAX_TOKENS` do not match;
+   - a secret the user owns ("their API key", "the user's secret token");
+   - a sentence saying the user holds one ("the user stores an API key and a
+     password", "they rotated their token").
+
+   Plain technical words are kept: "Trail Tracker uses JWT tokens", "an offline
+   password manager", "a daily limit of 200,000 tokens", "renamed PRIMARY_KEY
+   to USER_ID". A bare "key" ("rotated the key for Lumen Budget") is not
+   matched. Before the model, the pre-filter replaces every credential value
+   with `[REDACTED]` (the rest of the line is kept), and the post-filter drops
+   any node that still contains one of those withheld values, or any word of
+   one that the model never saw, even from a model that copies it. The same name
    twice in one output is stored once, and a fact the graph already holds under
    another name (same type, every sentence sharing at least 80% of its words) is
    not added again. Links to a dropped node are dropped. A "Me" node is always a
@@ -176,7 +233,8 @@ assistant's guess, a fake secret with a traceback, and a fact already in the
 graph), each in a temporary home. It reports recall of the expected facts,
 precision (nodes that match an expected or allowed fact, are supported by the
 user's words and hold no forbidden word), unsupported nodes, forbidden words,
-secret leaks and duplicates. Measured with `hermes3:8b` on this version:
+secret leaks and duplicates. Round 1, measured with `hermes3:8b` on the round-1
+code (commit 831091d and its follow-up), not on the current version:
 
 | | recall | precision | F1 | unsupported nodes | forbidden | leaks |
 |---|---|---|---|---|---|---|
@@ -221,18 +279,29 @@ scores a second set of 13 made-up, redacted transcripts, with totals per group:
 check, not an independent benchmark.** The cases were written and scored on the
 old code before any filter changed; the filters were not tuned on them
 afterwards. One held-out case was inspected after the fix, only to explain a
-drop (below). All rows: `hermes3:8b`, temperature 0, 3 runs, all 3 equal.
+drop (below). Caveat: `heldout_cases.json` and the round-2 code landed together
+in commit 38bd874, so the git history alone cannot prove the cases came first;
+the "before" scores were taken on the unchanged filter code in the same working
+tree before any filter edit. All rows: `hermes3:8b`, temperature 0, 3 runs, all 3 equal.
 "After review" is after the fixes from a review of round 2 (indentation block,
 whole-word first person, shell continuations, definition questions, secret-talk
 nodes); those were tested with new unit tests, not tuned on the held-out cases.
 
-| set (recall / precision / F1) | before | after round 2 | after review |
-|---|---|---|---|
-| original 7 cases | 0.900 / 0.733 / 0.808 | 0.900 / 0.786 / 0.839 | 0.900 / 0.786 / **0.839** |
-| held-out, all 13 | 0.647 / 0.650 / 0.649 | 0.882 / 0.652 / 0.750 | 0.882 / 0.682 / **0.769** |
-| held-out `ab` (5) | 0.000 / 1.000 / 0.000 (1 node) | 1.000 / 0.800 / 0.889 | 1.000 / 0.800 / **0.889** |
-| held-out `control` (3) | 1.000 / 0.333 / 0.500 | 1.000 / 0.333 / 0.500 | 1.000 / 0.500 / **0.667** |
-| held-out `independent` (5) | 0.833 / 0.688 / 0.753 | 0.833 / 0.667 / 0.741 | 0.833 / 0.667 / **0.741** |
+| set (recall / precision / F1) | before | after round 2 | after review | round 3 (stage 6, 3 runs, all 3 equal) |
+|---|---|---|---|---|
+| original 7 cases | 0.900 / 0.733 / 0.808 | 0.900 / 0.786 / 0.839 | 0.900 / 0.786 / 0.839 | 0.900 / 0.786 / **0.839** |
+| held-out, all 13 | 0.647 / 0.650 / 0.649 | 0.882 / 0.652 / 0.750 | 0.882 / 0.682 / 0.769 | 0.882 / 0.652 / **0.750** |
+| held-out `ab` (5) | 0.000 / 1.000 / 0.000 (1 node) | 1.000 / 0.800 / 0.889 | 1.000 / 0.800 / 0.889 | 1.000 / 0.800 / **0.889** |
+| held-out `control` (3) | 1.000 / 0.333 / 0.500 | 1.000 / 0.333 / 0.500 | 1.000 / 0.500 / 0.667 | 1.000 / 0.333 / **0.500** |
+| held-out `independent` (5) | 0.833 / 0.688 / 0.753 | 0.833 / 0.667 / 0.741 | 0.833 / 0.667 / 0.741 | 0.833 / 0.667 / **0.741** |
+
+Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
+tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
+control group dropped from 0.667 to 0.500: the node "Rotate LUMEN_KEY for
+Lumen Budget" is stored again, because `LUMEN_KEY` is not on the credential
+suffix list. Its value is not stored (0 secret leaks). This was found by
+inspecting that held-out case after the change; it was accepted as a known
+gap and nothing was tuned against it.
 
 Secret leaks were 0 in every run. What this shows:
 
@@ -249,6 +318,29 @@ Secret leaks were 0 in every run. What this shows:
 - These sets are small (7 and 13 cases); one node moves a group's precision by
   several points.
 
+#### Round 3: regression set (found by the reviewer, not held-out)
+
+`python -m room.memory.extraction_eval --runs 3 --cases tests/eval/regression_cases.json`
+scores 19 cases, each labelled "regression: found by reviewer, not held-out".
+**This set is not held-out: its inputs come from the round-2 review, and the
+filters were fixed while looking at them, so it only checks that those fixes
+stay fixed.** 17 cases are the reviewer's inputs; the 2 `known-gap` cases were
+found in the stage 5c probes and are expected to fail. No code was changed
+after these cases were written.
+
+| group (cases) | recall / precision / F1 | notes |
+|---|---|---|
+| `false-drop` (4): JWT tokens, PassVault, Muse token limit, PRIMARY_KEY rename | 1.000 / 1.000 / 1.000 | all kept |
+| `premise` (2): Corvid Analytics, Rust over Go | 1.000 / 1.000 / 1.000 | premise kept, question not stored |
+| `noise` (6): git log, git status, `us`/`i` log lines, apt `I:`, Go panic, INFO/DEBUG | no facts expected, 0 nodes | nothing reached the model |
+| `speaker` (2): "We migrated Harbor Log", Windows path | 1.000 / 0.667 / 0.800 | both facts found; the Windows case also stores a "Me" node the scorer counts as unsupported |
+| `hypothetical` (3): premise and project | no facts expected, 0 nodes | nothing stored |
+| `known-gap` (2) | 0.000 / 0.000 / 0.000 | "Which database could Harbor Log use?" loses the project; "If I build Harbor Log I will write it in Go." stores a Harbor Log project |
+| all 19 | 0.889 / 0.800 / 0.842 | 3 runs, all 3 equal; 0 forbidden outside `known-gap` |
+
+Secret leaks were 0, but this set contains no fake secret, so that number says
+nothing here; secrets are covered by the leak tests and the held-out control.
+
 Known gaps in the question and noise rules (each is a heuristic):
 
 - A question without "?" ("what should I name my app") is not treated as a
@@ -257,11 +349,53 @@ Known gaps in the question and noise rules (each is a heuristic):
   names a multi-word Title Case name and reaches the model; an impersonal
   question about your project that starts like a definition ("What is Trail
   Tracker's next milestone?") is dropped.
-- "We ..." at the start of an indented line after a shell prompt is dropped,
-  even when it is you speaking; only "I ..." and "My ..." are kept there.
-- A line ending in a backslash in normal prose is dropped with the next line.
-- The secret-talk rule also drops honest facts that use those words, such as a
-  project "Password Manager" or "Trail Tracker uses JWT tokens".
+- "We ..." at the start of an indented line after a shell prompt is dropped
+  unless the line names a multi-word Title Case name ("We moved it to Go" is
+  dropped).
+- A prose line ending in a space and a backslash is dropped with the next line.
+- Non-indented tool output after a `$ ` prompt is dropped only when it matches
+  a known pattern (git, Go panics, log levels, source locations); other output
+  lines reach the model.
+- The secret-talk rule is pattern-based. It still drops some honest facts
+  ("the user's JWT tokens expire hourly" reads as owning a token;
+  "`CSRF_TOKEN` is set per request" names a credential variable).
+- Masking a value to the end of its clause can over-mask: in "my password is
+  hunter2 for Trail Tracker" the words "for Trail Tracker" are masked too. The
+  model never sees them, and the post-filter withholds them, so a Trail Tracker
+  node from that message is lost (measured by
+  `test_over_masking_loss_is_counted_not_silent` and a strict xfail). The drop
+  is counted in the extraction result's `dropped` total, not itemised. If the
+  name appears anywhere else in the message, the node is kept.
+- A password that is itself one of the status words ("the token is set", "the
+  password is expired") is not masked.
+- A credential variable whose name is not on the suffix list, such as
+  `LUMEN_KEY`, is stored as a name ("Rotate LUMEN_KEY for Lumen Budget"); its
+  value is never stored. This is the price of keeping `PRIMARY_KEY`, and it is
+  why the held-out control group dropped in round 3 (see the table).
+- The redaction layer (`room/memory/redact.py`, used by capture and the
+  working layer) only catches known token shapes and `label=value` pairs with
+  6+ characters, so a prefix-less password ("the password is swordfish") in a
+  working-layer transcript is not redacted there. That is pre-existing and out
+  of scope here; the masking above applies only on the way into the long-term
+  graph.
+- A fact before a question is kept only when a comma separates it from the
+  question and it opens with a factual marker. These lose a real fact
+  (checked): "I prefer Rust so which parser should I pick?" (no comma), "I
+  joined Corvid Analytics last week, what should I read?" (no marker),
+  "Since we were acquired by Stripe, what changes?" ("were" counts as
+  hypothetical), and "Since I moved to Go if that matters, which linter?"
+  ("if" anywhere in the clause). When unsure, nothing is kept.
+- The hypothetical check is a word list, so it also catches plain questions
+  that use "could" or "would": "Which database could Harbor Log use?" and
+  "Would Harbor Log work on Fly.io?" no longer keep the Harbor Log project
+  (checked; a missing fact, not a false one).
+- A hypothetical written without "?" is not seen as a question: "If I build
+  Harbor Log" can still store a Harbor Log project (checked).
+- An impersonal question that names your project with a single word ("Is
+  Postgres right for Ledgerly?") is dropped: without knowing your projects,
+  "Ledgerly" looks like "Python". Only multi-word Title Case names pass.
+- "Describe X?" and "Tell me about X?" are not recognised as questions at all,
+  so they reach the model, which is told not to record general knowledge.
 
 ## Recall
 

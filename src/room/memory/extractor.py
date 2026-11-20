@@ -399,6 +399,9 @@ async def extract_session(
     source = session_source(messages)
     result = ExtractionResult(session_id, "queued")
     try:
+        # credential values ("my password is hunter2") are cut out by the pre-filter; the post-filter
+        # also drops any node that still contains one. Kept in memory only, never written.
+        withheld = quality.withheld_values("\n".join(m.content for m in messages if m.role == ROLE_USER))
         messages = quality.prefilter_messages(messages)  # chatter and tool noise never reach the model
         text = source_text(messages)
         user_text = source_text(messages, scope="user")  # facts must be grounded in the user's own words
@@ -423,7 +426,7 @@ async def extract_session(
                     result.errors.extend(f"{name}: {e}" if not e.startswith(f"{name}:") else e for e in errors)
                     continue
                 with MemoryStore(store_path) as store:
-                    data, dropped = quality.clean_extraction(data, user_text, store)
+                    data, dropped = quality.clean_extraction(data, user_text, store, withheld)
                     result.counts = store.apply_extraction(data, Provenance(session_id, name, source))
                     result.counts["dropped"] = sum(dropped.values())
                 result.status, result.agent = "stored", name

@@ -524,10 +524,18 @@ Keyword search has no notion of meaning; see the limits below.
     dropping real facts (a `> ` quote, a "Warning: I ..." line, a question
     naming your project, a line after a shell prompt) and stops storing your
     question restated as a task, or a note that only says you have a token or
-    key variable. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
+    key variable; a factual premise before a question ("Since I am joining
+    Corvid Analytics, what should I read?") is kept, a hypothetical one ("If I
+    joined Google, ...") and the question itself are not. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
     times). A 13-case held-out set, written before the fixes by the same author
-    (a sanity check, not an independent benchmark): F1 0.649 to 0.769; its 5
-    cases unrelated to these issues went from 0.753 to 0.741. See
+    (a sanity check, not an independent benchmark): F1 0.649 to 0.769 after
+    round 2, then 0.750 in round 3, because keeping words like "PRIMARY_KEY"
+    also lets a note that names the variable `LUMEN_KEY` through (the name
+    only, never its value); its 5 cases unrelated to these issues went from
+    0.753 to 0.741. A 19-case regression set built from the reviewer's inputs
+    scores F1 0.842 (recall 0.889); it is not held-out, because those inputs
+    were seen while fixing, so it only checks the fixes stay fixed, and its 2
+    known-gap cases fail as documented. See
     [docs/MEMORY.md](docs/MEMORY.md#measuring-extraction). It still keeps some
     unsupported details, and sets this small are a small sample.
     Review notes with `room memory search` and `room memory show`, and fix
@@ -617,7 +625,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 472 tests (all passing on this version). It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 790 tests (counted with `pytest --collect-only`; 787 pass and 3 are expected failures, `xfail`, marking known gaps). It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
