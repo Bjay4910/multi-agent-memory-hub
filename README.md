@@ -106,10 +106,24 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-**macOS note:** macOS protects Desktop, Documents and Downloads. Programs
-started by other apps (such as the Claude desktop app, or launchd) can fail
-with "Operation not permitted" if the project lives there. Keep the project in
-a normal folder such as `~/Developer`.
+**macOS note:** keep the project under `~/Developer`, not in `~/Desktop`,
+`~/Documents` or `~/Downloads`. macOS blocks helper processes (such as the
+`room mcp` server the Claude desktop app starts) from those folders, and they
+fail with "Operation not permitted".
+
+### Connecting your tools
+
+These are set up and working with the memory:
+
+| Tool | How it reaches memory |
+|------|-----------------------|
+| Claude Code | a rule in `~/.claude/CLAUDE.md` that runs `room memory search` / `room memory show` in the shell |
+| Antigravity CLI (`agy`) | the same rule in `~/.gemini/GEMINI.md`, worded to apply only when shell commands are available |
+| Claude desktop app | the `room mcp` server, with five tools: `memory_search`, `memory_show`, `memory_remember`, `working_search`, `session_latest` |
+| The room itself | memory is added to each agent's prompt automatically |
+
+Details: [Memory everywhere](#memory-everywhere) and
+[Claude desktop app](#claude-desktop-app).
 
 ### Configuring keys
 
@@ -262,7 +276,8 @@ inside the repository.
 
 ### Memory everywhere
 
-The memory is not locked inside the room. Other tools can read it in two ways.
+The memory is not locked inside the room. Other tools can reach it in the ways
+below.
 
 ```mermaid
 flowchart LR
@@ -292,13 +307,21 @@ flowchart LR
   it without tools. Room-spawned Claude calls use `--safe-mode` for the same
   reason (see [How the CLI agents are called](#how-the-cli-agents-are-called)).
 - **MCP server.** `room mcp` is an MCP server over stdio for apps that can't
-  run shell commands: read-only search and show, plus append-only saving of
-  notes on explicit request. See [Claude desktop app](#claude-desktop-app).
+  run shell commands: read-only search and show of long-term memory, read-only
+  search of the working layer and the latest captured session, plus
+  append-only saving of notes on explicit request. See [Claude desktop app](#claude-desktop-app).
 - **Claude Code capture (opt-in).** Finished Claude Code sessions can be saved
   into the working layer automatically, so you don't have to copy and paste
   between chats. See [Claude Code capture](#claude-code-capture).
 
 #### Two layers: working and long-term
+
+In plain words: the working layer is a short-term notebook of recent chats,
+and the long-term layer is the curated memory. Capture fills the notebook
+automatically, but only if you turn it on, only after a Claude Code session
+has ended (not while it is running), and only for Claude Code: Antigravity
+sessions are not captured yet. Secrets are redacted before anything is
+written, and notes expire after 14 days.
 
 - **Working layer** (`~/.agent-room/working/`): what was said in recent
   sessions, kept almost as it was (only your typed text and the assistant's
@@ -531,7 +554,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The test suite uses fake agents, fake `claude`/`agy` executables and a
+The suite has 362 tests (all passing on this version). It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
@@ -542,13 +565,7 @@ the repository.
 
 - **Semantic recall (next):** add local embeddings next to BM25, so questions
   that share no keywords with a stored fact can still find it. Not built yet.
-- **Presence-driven power manager (built, separate repo):**
-  [Agent-Aware Power Manager](https://github.com/Bjay4910/agent-aware-power-manager)
-  is a macOS menu-bar tool that keeps the Mac awake with the lid closed while
-  agents in this room are working, driven by the presence files described in
-  [docs/PRESENCE.md](docs/PRESENCE.md). It has 47 tests, its lid-closed test
-  passed twice for about 5 minutes (plugged in), and its runaway-process guard
-  only notifies by default.
+- **Power manager (separate repo):** [Agent-Aware Power Manager](https://github.com/Bjay4910/agent-aware-power-manager) keeps the Mac awake while agents work, using the [presence files](docs/PRESENCE.md).
 
 ## License
 
