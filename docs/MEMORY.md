@@ -96,17 +96,30 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    Before that, a pre-filter (`room/memory/quality.py`) drops messages that are
    only chatter (greetings, thanks, "reply with just the word ...") or an
    impersonal general question ("what is a hash map?"), and removes code blocks,
-   tracebacks, shell prompts and symbol-heavy lines. It keeps facts that only
-   look like noise: a leading `> ` is treated as a quote mark and stripped; a
-   bare `Warning:` or `Error:` line is kept when it speaks in the first person
-   ("Warning: I am moving Trail Tracker to Rust"), while `RuntimeError: ...` or
-   `Error: ENOENT ...` is still dropped; indented lines under a stack trace are
-   dropped, but under other tool output (`$ npm test`) only when they are not in
-   the first person. An impersonal question is kept if it names a multi-word
-   Title Case name ("Is Postgres right for Trail Tracker?"), since that is
-   probably your own project; "What is Python?" is still dropped. A known gap:
-   "What is New York?" would also reach the model. If nothing is left, the
-   model is not called and the result is "nothing to extract".
+   tracebacks, shell prompts and symbol-heavy lines. The exact rules:
+   - A leading `> ` is a quote mark and is stripped, so "> I prefer tabs over
+     spaces" is kept.
+   - A line ending in a backslash, and the line after it, are a shell command
+     split over lines and are dropped ("> --rm -it \" too).
+   - A bare `Warning:` or `Error:` line is kept only if it has a first-person
+     pronoun as a whole word ("Warning: I am moving Trail Tracker to Rust").
+     "I/O", "me/utils" and similar do not count, and `RuntimeError: ...` is
+     always dropped.
+   - The indented block under a noise line belongs to it until the next line
+     that is not indented. Under a stack trace the whole block is dropped.
+     Under other tool output (`$ npm test`) a line is kept only if it starts
+     with you speaking ("I ...", "I'm ...", "My ..."), so "  I switched Trail
+     Tracker to Vitest" is kept, while "  Tests: 1 failed" and even "  we
+     expected 3 but got 4" are dropped.
+   - An impersonal definition question ("what is / what's / who is / define /
+     explain / describe / tell me about / how does ... work") is dropped,
+     whatever it names ("What is Apache Kafka?"). Any other impersonal question
+     is dropped unless it names a multi-word Title Case name, which is probably
+     your own project ("Is Postgres right for Trail Tracker?",
+     "Should Trail Tracker use Redis?").
+
+   If nothing is left, the model is not called and the result is "nothing to
+   extract".
 2. **Extractor.** `MEMORY_EXTRACTOR` is `hermes` (default), `claude` or `gemini`.
    The prompt asks for strict JSON in this shape:
    `{"nodes":[{type,name,summary,confidence,evidence}],"edges":[{src,relation,dst}]}`,
@@ -127,7 +140,13 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    name my budgeting app?" the budgeting app is kept, "Name Budgeting App" is
    not; this also drops requests such as "Review PR for Ledgerly"), when its
    confidence is below 0.5, or
-   when any secret pattern matches its name, summary or evidence. The same name
+   when any secret pattern matches its name, summary or evidence, or when its
+   name or summary talks about a secret even without the value ("User's secret
+   token", "User set ANTHROPIC_API_KEY": the words secret, token, API key,
+   access key, password, passphrase, credential, private key, or a variable
+   name ending in `_KEY`, `_TOKEN`, `_SECRET`, `_PASSWORD`); for "Me" only the
+   summary is emptied. A bare "key" ("rotated the key for Lumen Budget") is not
+   matched. The same name
    twice in one output is stored once, and a fact the graph already holds under
    another name (same type, every sentence sharing at least 80% of its words) is
    not added again. Links to a dropped node are dropped. A "Me" node is always a
@@ -173,9 +192,9 @@ What this shows, and what it does not:
   difference is within run-to-run noise on this set. The new version also uses
   temperature 0, which removes some of that spread, so the F1 change mostly
   reflects precision.
-- **Small set, no held-out data.** There are only 7 cases, and the filters were
-  tuned while looking at these same 7 cases. There is no separate set to check
-  that the gain holds on new transcripts.
+- **Small set, tuned on itself.** There are only 7 cases, and the round-1
+  filters were tuned while looking at these same 7 cases. Round 2 added a
+  separate 13-case held-out set (below), written by the same author.
 - **Scorer and fix landed together.** The scorer, the cases and the filters came
   in one commit, so the history cannot show that the scorer was fixed before the
   baseline was measured. Both rows were scored with the same scorer.
@@ -203,16 +222,19 @@ check, not an independent benchmark.** The cases were written and scored on the
 old code before any filter changed; the filters were not tuned on them
 afterwards. One held-out case was inspected after the fix, only to explain a
 drop (below). All rows: `hermes3:8b`, temperature 0, 3 runs, all 3 equal.
+"After review" is after the fixes from a review of round 2 (indentation block,
+whole-word first person, shell continuations, definition questions, secret-talk
+nodes); those were tested with new unit tests, not tuned on the held-out cases.
 
-| set | before: recall / precision / F1 | after: recall / precision / F1 |
-|---|---|---|
-| original 7 cases | 0.900 / 0.733 / 0.808 | 0.900 / **0.786** / **0.839** |
-| held-out, all 13 | 0.647 / 0.650 / 0.649 | **0.882** / 0.652 / **0.750** |
-| held-out `ab` (5) | 0.000 / 1.000 / 0.000 (1 node) | **1.000** / 0.800 / **0.889** |
-| held-out `control` (3) | 1.000 / 0.333 / 0.500 | 1.000 / 0.333 / 0.500 |
-| held-out `independent` (5) | 0.833 / 0.688 / 0.753 | 0.833 / 0.667 / 0.741 |
+| set (recall / precision / F1) | before | after round 2 | after review |
+|---|---|---|---|
+| original 7 cases | 0.900 / 0.733 / 0.808 | 0.900 / 0.786 / 0.839 | 0.900 / 0.786 / **0.839** |
+| held-out, all 13 | 0.647 / 0.650 / 0.649 | 0.882 / 0.652 / 0.750 | 0.882 / 0.682 / **0.769** |
+| held-out `ab` (5) | 0.000 / 1.000 / 0.000 (1 node) | 1.000 / 0.800 / 0.889 | 1.000 / 0.800 / **0.889** |
+| held-out `control` (3) | 1.000 / 0.333 / 0.500 | 1.000 / 0.333 / 0.500 | 1.000 / 0.500 / **0.667** |
+| held-out `independent` (5) | 0.833 / 0.688 / 0.753 | 0.833 / 0.667 / 0.741 | 0.833 / 0.667 / **0.741** |
 
-Secret leaks were 0 in every run, before and after. What this shows:
+Secret leaks were 0 in every run. What this shows:
 
 - The round-2 issues are fixed on their own cases (`ab` recall 0 to 1), and the
   original set did not get worse; its precision rose because a restated
@@ -222,9 +244,24 @@ Secret leaks were 0 in every run, before and after. What this shows:
   "Can you review this PR for Ledgerly ...?", is now dropped. The scorer had
   counted it as useful because it names Ledgerly; the new rule treats it as a
   request, not a fact. Recall there is unchanged.
-- The controls did not change: 2 of their 3 stored nodes are still junk.
+- The review fixes changed only the controls: one forbidden node is gone (2
+  stored nodes, 1 of them still junk). No group got worse.
 - These sets are small (7 and 13 cases); one node moves a group's precision by
   several points.
+
+Known gaps in the question and noise rules (each is a heuristic):
+
+- A question without "?" ("what should I name my app") is not treated as a
+  question, so a task read out of it can still be stored.
+- Other question shapes slip through: "Which is better, Vue or React Native?"
+  names a multi-word Title Case name and reaches the model; an impersonal
+  question about your project that starts like a definition ("What is Trail
+  Tracker's next milestone?") is dropped.
+- "We ..." at the start of an indented line after a shell prompt is dropped,
+  even when it is you speaking; only "I ..." and "My ..." are kept there.
+- A line ending in a backslash in normal prose is dropped with the next line.
+- The secret-talk rule also drops honest facts that use those words, such as a
+  project "Password Manager" or "Trail Tracker uses JWT tokens".
 
 ## Recall
 

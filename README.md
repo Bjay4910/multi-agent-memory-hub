@@ -523,10 +523,11 @@ Keyword search has no notion of meaning; see the limits below.
     within run-to-run noise. A second round stopped the pre-filter from
     dropping real facts (a `> ` quote, a "Warning: I ..." line, a question
     naming your project, a line after a shell prompt) and stops storing your
-    question restated as a task. Original 7 cases: F1 0.808 to 0.839 (recall
-    0.900 both times). A 13-case held-out set, written before the fixes by the
-    same author (a sanity check, not an independent benchmark): F1 0.649 to
-    0.750; its 5 cases unrelated to these issues went from 0.753 to 0.741. See
+    question restated as a task, or a note that only says you have a token or
+    key variable. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
+    times). A 13-case held-out set, written before the fixes by the same author
+    (a sanity check, not an independent benchmark): F1 0.649 to 0.769; its 5
+    cases unrelated to these issues went from 0.753 to 0.741. See
     [docs/MEMORY.md](docs/MEMORY.md#measuring-extraction). It still keeps some
     unsupported details, and sets this small are a small sample.
     Review notes with `room memory search` and `room memory show`, and fix
