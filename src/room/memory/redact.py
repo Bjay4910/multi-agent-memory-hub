@@ -32,7 +32,7 @@ _TOKEN_CANDIDATE = re.compile(r"[A-Za-z0-9_\-+=]{32,}")
 # The room's own session ids (see transcript.new_session_id), optionally with a note prefix.
 # Exempt from the high-entropy rule only when the WHOLE candidate run is exactly one id, so a
 # secret glued onto an id or a prefix still forms a longer run and is still caught.
-_OWN_SESSION_ID = re.compile(r"(?:(?:manual|clipboard|mcp|claude-code)-)?\d{8}T\d{6}Z-[0-9a-f]{6}")
+_OWN_SESSION_ID = re.compile(r"(?:(?:manual|clipboard|mcp|claude-code|antigravity)-)?\d{8}T\d{6}Z-[0-9a-f]{6}")
 
 
 def _entropy(s: str) -> float:

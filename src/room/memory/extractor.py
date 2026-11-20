@@ -259,12 +259,14 @@ def source_text(messages: list[Message], scope: str | None = None) -> str:
 
 
 def session_source(messages: list[Message]) -> str:
-    """Provenance source: 'clipboard', 'manual', 'mcp-desktop' or 'claude-code' for notes, 'session' for room sessions."""
+    """Provenance source: 'clipboard', 'manual', 'mcp-desktop', 'claude-code' or 'antigravity' for notes,
+    'session' for room sessions."""
     agents = {m.agent for m in messages}
     if "mcp-desktop" in agents:  # saved through `room mcp` memory_remember
         return "mcp-desktop"
-    if "claude-code" in agents:  # promoted from the working layer (`room working promote`)
-        return "claude-code"
+    for source in ("claude-code", "antigravity"):  # promoted from the working layer (`room working promote`)
+        if source in agents:
+            return source
     if "clipboard" in agents:
         return "clipboard"
     return "manual" if "manual" in agents else "session"

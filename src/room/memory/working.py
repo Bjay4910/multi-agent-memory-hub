@@ -36,7 +36,8 @@ from ..transcript import ROLE_AGENT, ROLE_USER, Message, new_session_id
 from .paths import RepoWriteError, ensure_outside_repo
 from .redact import find_secrets, redact_secrets
 
-SOURCES = ("claude-code",)
+SOURCES = ("claude-code", "antigravity")
+_ASSISTANT_AGENT = {"claude-code": "claude", "antigravity": "gemini"}  # agent name for the assistant's turns
 DEFAULT_TTL_DAYS = 14
 MAX_NOTE_CHARS = 8000  # total turn text kept per note; the oldest turns are dropped first
 MIN_USER_TURNS = 2
@@ -257,13 +258,17 @@ def _words(query: str) -> list[str]:
     return sorted({w for w in re.findall(r"\w+", query.lower()) if len(w) >= 2})
 
 
-def search(query: str, limit: int = 5) -> list[tuple[dict, list[str]]]:
-    """Live notes containing ALL words of ``query`` (case-insensitive), with short snippets."""
+def search(query: str, limit: int = 5, source: str | None = None) -> list[tuple[dict, list[str]]]:
+    """Live notes containing ALL words of ``query`` (case-insensitive), with short snippets.
+
+    ``source`` limits the search to one capture source (``claude-code``, ``antigravity``)."""
     words = _words(query)
     if not words:
         return []
     results = []
     for note in list_notes():
+        if source is not None and note.get("source") != source:
+            continue
         body = "\n".join([note.get("project", "")] + [t["text"] for t in note["turns"]])
         lower = body.lower()
         if all(w in lower for w in words):
@@ -327,5 +332,5 @@ def promotion_messages(note: dict) -> tuple[str, list[Message]]:
                 text, first_user = f"Project: {note.get('project', '?')}\n\n{text}", False
             messages.append(Message(sid, note["source"], i, ROLE_USER, text))
         else:
-            messages.append(Message(sid, "claude", i, ROLE_AGENT, turn["text"]))
+            messages.append(Message(sid, _ASSISTANT_AGENT.get(note["source"], "claude"), i, ROLE_AGENT, turn["text"]))
     return sid, messages

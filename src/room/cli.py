@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -123,11 +124,17 @@ def build_parser() -> argparse.ArgumentParser:
     wpr = wsub.add_parser("promote", help="send one working note through extraction into long-term memory")
     wpr.add_argument("note_id")
 
-    cap = sub.add_parser("capture", help="opt-in capture of Claude Code sessions into the working layer")
+    cap = sub.add_parser("capture", help="opt-in capture of Claude Code and Antigravity sessions into the working layer")
     csub = cap.add_subparsers(dest="capture_command", required=True)
     ccl = csub.add_parser("claude", help="SessionEnd hook entry: reads the hook input on stdin; always exits 0")
     ccl.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
-    ih = csub.add_parser("install-hook", help="print, merge in, or remove the Claude Code SessionEnd hook")
+    cag = csub.add_parser("antigravity", help="agy Stop hook entry: reads the hook payload on stdin; prints {} and exits 0")
+    cag.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    ih = csub.add_parser("install-hook", help="print, merge in, or remove the capture hook (Claude Code or Antigravity)")
+    ih.add_argument("--agent", choices=("claude", "antigravity"), default="claude",
+                    help="claude: SessionEnd hook in ~/.claude/settings.json (default); "
+                         "antigravity: 'agent-room' Stop group in ~/.gemini/config/hooks.json")
+    ih.add_argument("--hooks-file", type=Path, help="Antigravity hooks file (default: ~/.gemini/config/hooks.json)")
     act = ih.add_mutually_exclusive_group(required=True)
     act.add_argument("--print", dest="hook_action", action="store_const", const="print", help="print the JSON to add")
     act.add_argument("--apply", dest="hook_action", action="store_const", const="install",
@@ -536,24 +543,49 @@ def cmd_capture(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001 - the hook path always exits 0
             return 0
         return capture.run_worker(raw) if args.worker else capture.run_hook(raw)
-    if cmd == "install-hook":
-        if args.hook_action == "print":
-            print(json.dumps(capture.hook_config(), indent=2))
-            return 0
-        path = args.settings or capture.default_settings_path()
+    if cmd == "antigravity":
+        from . import capture_agy
+
         try:
-            print(capture.change_settings(path, args.hook_action))
-        except (capture.SettingsError, OSError) as exc:
+            raw = sys.stdin.read(capture.MAX_HOOK_INPUT + 1)
+        except Exception:  # noqa: BLE001 - the hook path always exits 0
+            raw = ""
+        if args.worker:
+            return capture_agy.run_worker(raw)
+        capture_agy.run_hook(raw)
+        try:
+            print("{}", flush=True)  # agy reads a JSON object from a hook's stdout; {} lets the agent stop normally
+        except Exception:  # noqa: BLE001 - e.g. agy closed the pipe; the hook still exits 0
+            try:  # point stdout at /dev/null so the flush at interpreter exit cannot fail either
+                devnull = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(devnull, sys.stdout.fileno())
+                os.close(devnull)
+            except Exception:  # noqa: BLE001
+                pass
+        return 0
+    if cmd == "install-hook":
+        from . import capture_agy
+
+        agy = args.agent == "antigravity"
+        if args.hook_action == "print":
+            print(json.dumps(capture_agy.hook_config() if agy else capture.hook_config(), indent=2))
+            return 0
+        try:
+            if agy:
+                print(capture_agy.change_hooks(args.hooks_file or capture_agy.default_hooks_path(), args.hook_action))
+            else:
+                print(capture.change_settings(args.settings or capture.default_settings_path(), args.hook_action))
+        except (capture.SettingsError, OSError, ValueError) as exc:
             print(f"room capture: {exc}; the file was not changed.", file=sys.stderr)
             return 2
         return 0
     if cmd in ("enable", "disable"):
         capture.set_enabled(cmd == "enable")
-        print(f"Claude Code capture: {'on' if cmd == 'enable' else 'off'}")
+        print(f"Claude Code and Antigravity capture: {'on' if cmd == 'enable' else 'off'}")
         return 0
     from .memory import working
 
-    print(f"Claude Code capture: {'on' if capture.is_enabled() else 'off'}")
+    print(f"Claude Code and Antigravity capture: {'on' if capture.is_enabled() else 'off'}")
     settings = capture.default_settings_path()
     try:
         data = json.loads(settings.read_text(encoding="utf-8")) if settings.is_file() else {}
@@ -562,6 +594,14 @@ def cmd_capture(args: argparse.Namespace) -> int:
         print(f"SessionEnd hook in {settings}: {'installed' if installed else 'not installed'}")
     except (OSError, ValueError, AttributeError):
         print(f"SessionEnd hook in {settings}: could not read the file")
+    from . import capture_agy
+
+    hooks = capture_agy.default_hooks_path()
+    try:
+        state = capture_agy.install_state(hooks)
+    except (OSError, ValueError):
+        state = "could not read the file"
+    print(f"Antigravity Stop hook ('{capture_agy.HOOK_GROUP}' group) in {hooks}: {state}")
     print(f"Working notes: {len(working.list_notes())} unexpired")
     return 0
 
