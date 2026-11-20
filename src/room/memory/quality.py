@@ -3,10 +3,15 @@
 Before the model (``prefilter_messages``): drop chatter-only messages (greetings,
 thanks, "reply with just the word ...", impersonal general-knowledge questions) and
 tool noise (code fences, tracebacks, shell prompts, symbol-heavy lines). A leading
-"> " is a quote marker and is stripped, not dropped. Indented lines under a stack trace
-are dropped; indented lines under other tool output are dropped unless they speak in the
-first person. An impersonal question is dropped unless it names a multi-word Title Case
-name (likely the user's own project, e.g. "Is Postgres right for Trail Tracker?").
+"> " is a quote marker and is stripped, not dropped. A line ending in a backslash and the
+line after it are a split shell command and are dropped. The indented block under a noise
+line belongs to it until the next non-indented line: under a stack trace all of it is
+dropped; under other tool output only lines that start with the user speaking ("I ...",
+"My ...") are kept. A bare "Warning:"/"Error:" line is kept only if it has a whole-word
+first-person pronoun (not "I/O" or "me/utils"). An impersonal definition question ("What
+is Apache Kafka?") is dropped; any other impersonal question is dropped unless it names a
+multi-word Title Case name (likely the user's own project, "Is Postgres right for Trail
+Tracker?").
 If nothing is left, the model is not called at all.
 
 After the model (``clean_extraction``): keep only nodes that are
@@ -17,7 +22,9 @@ After the model (``clean_extraction``): keep only nodes that are
 - not an open question: a node whose evidence is found only in a question sentence is
   kept only if it is a project or application (the thing the user asks about); a
   decision, task or preference read out of a question is dropped,
-- secret-free: any secret pattern in name, summary or evidence drops the node,
+- secret-free: any secret pattern in name, summary or evidence drops the node, and so does
+  a name or summary that talks about secrets, tokens, passwords or key variables
+  ("User set ANTHROPIC_API_KEY"); for "Me" only the summary is emptied,
 - new: not the same name twice in one output, and not a fact the graph already holds
   under another name.
 Edges that touch a dropped node are dropped. A "Me" node whose summary only
@@ -48,7 +55,8 @@ _GREETING = (r"(hi|hello|hey|yo|thanks|thank you|thx|ty|ok|okay|great|cool|nice|
 _CHATTER = re.compile(rf"^(?:{_GREETING}[\s,.!?]*)+(?:there|again|so much|a lot)?[\s,.!?]*$", re.I)
 _TEST_PROMPT = re.compile(r"^\s*(reply|respond|answer|say)\b.{0,40}\b(just|only)\b.{0,40}$|^\s*say\s+\w+[.!]?\s*$", re.I)
 _QUESTION = re.compile(r"^\s*(what|how|why|who|when|where|which|can|could|should|would|is|are|do|does|did|explain|define)\b[^\n]*\?\s*$", re.I)
-_FIRST_PERSON = re.compile(r"\b(i|i'm|im|i've|i'd|my|mine|me|we|we're|our|us)\b", re.I)
+# First person as a whole word: not "I/O", "me/utils", "us-east-1" or "a.my".
+_FIRST_PERSON = re.compile(r"(?<![\w/\\.-])(i'm|i've|i'd|i'll|im|i|my|mine|me|we're|we|our|us)(?![\w/\\-]|\.\w)", re.I)
 _FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
 _NOISE_LINE = re.compile(
     r"^\s*(Traceback \(most recent call last\):|File \".*\", line \d+|[A-Za-z_.]+(Error|Exception|Warning)(:|$)|"
@@ -57,8 +65,12 @@ _NOISE_LINE = re.compile(
 _BARE_LEVEL = re.compile(r"^\s*(error|exception|warning|warn|fatal)\s*:", re.I)
 # Stack-trace lines: anything indented under them is part of the trace.
 _TRACE_LINE = re.compile(r"^\s*(Traceback \(most recent call last\):|File \".*\", line \d+|at [\w.$<>]+\(.*:\d+\))")
+# A line that opens with the user speaking: "I ...", "I'm ...", "My ..." (not "I/O").
+_SPEAKER_START = re.compile(r"^\s*(i|i'm|i've|i'd|i'll|my)(?![\w/\\-]|\.\w)", re.I)
 _QUOTE_MARK = re.compile(r"^[ \t]*>[ \t]?(?!>)", re.M)
 _MULTIWORD_NAME = re.compile(r"\b[A-Z][\w-]*(?:\s+[A-Z][\w-]*)+\b")
+_DEFINITION = re.compile(r"^\s*(what(?:'s|\s+(?:is|are|was|were))|who(?:'s|\s+(?:is|are|was|were))|define|explain|describe|"
+                         r"tell me about|how\s+(?:does|do|did)\b.*\bwork)\b", re.I)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 QUESTION_ENTITY_TYPES = ("project", "application")
 _META_SUMMARY = re.compile(
@@ -88,14 +100,21 @@ def _is_noise(line: str) -> bool:
 def clean_message(text: str) -> str:
     """The message without code blocks and tool-noise lines; '' if it is only chatter."""
     text = _QUOTE_MARK.sub("", _FENCE.sub("\n", text or ""))
-    # Indented lines under noise: under a stack trace ("    connect(API_TOKEN)") they are always
-    # noise; under other tool output ("$ npm test") only when they do not speak in the first person.
-    kept, under = [], None  # under: None, "trace" or "output"
+    # The indented block under a noise line belongs to it, until the next non-indented line.
+    # Under a stack trace ("    connect(API_TOKEN)") every indented line is noise. Under other
+    # tool output ("$ npm test") an indented line is kept only when it starts with the user
+    # speaking ("  I switched Trail Tracker to Vitest"); the rest of the block stays noise.
+    # A line ending in a backslash, and the line after it, are a shell command split over lines
+    # ("$ docker run \\" / "> --rm -it \\" / "> -e MODE=prod web:latest").
+    kept, under, continued = [], None, False  # under: None, "trace" or "output"
     for ln in text.splitlines():
-        if _is_noise(ln):
+        in_command, continued = continued, ln.rstrip().endswith("\\")
+        if _is_noise(ln) or continued or in_command:
             under = "trace" if _TRACE_LINE.match(ln) else ("output" if under is None else under)
             continue
-        if under and ln.startswith((" ", "\t")) and (under == "trace" or not _FIRST_PERSON.search(ln)):
+        if under and ln.startswith((" ", "\t")):
+            if under == "output" and _SPEAKER_START.match(ln):
+                kept.append(ln)
             continue
         under = None
         kept.append(ln)
@@ -104,7 +123,10 @@ def clean_message(text: str) -> str:
         return ""
     if _QUESTION.match(cleaned) and not _FIRST_PERSON.search(cleaned):
         rest = cleaned.split(None, 1)[1] if " " in cleaned.strip() else ""
-        if not _MULTIWORD_NAME.search(rest):  # "what is a hash map?" vs "Is Postgres right for Trail Tracker?"
+        # A definition question is general knowledge whatever it names ("What is Apache Kafka?");
+        # any other impersonal question must name a multi-word Title Case name, probably the user's
+        # own project ("Is Postgres right for Trail Tracker?"), to reach the model.
+        if _DEFINITION.match(cleaned) or not _MULTIWORD_NAME.search(rest):
             return ""
     return cleaned
 
@@ -164,6 +186,18 @@ def from_question_only(node: dict, source: str, statements: str) -> bool:
     return "evidence" in node and grounded(node, source) and not grounded(node, statements)
 
 
+# Words about secrets, and environment-variable names for them (ANTHROPIC_API_KEY, GITHUB_TOKEN).
+# "the key for Lumen Budget" is not matched: a bare "key" is too common.
+_SECRET_TALK = re.compile(
+    r"(?i:\b(secrets?|tokens?|api[ _-]?keys?|access[ _-]?keys?|passwords?|passphrases?|credentials?|private[ _-]keys?)\b)"
+    r"|\b[A-Z0-9]+(?:_[A-Z0-9]+)*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PAT)\b")
+
+
+def talks_about_secrets(node: dict) -> bool:
+    """True if the node's name or summary is about a secret, token or key variable (even with no value)."""
+    return bool(_SECRET_TALK.search(f"{node.get('name') or ''} {node.get('summary') or ''}"))
+
+
 def has_secret(node: dict) -> bool:
     return bool(find_secrets(" ".join(str(node.get(k) or "") for k in ("name", "summary", "evidence")))
                 or "[REDACTED]" in f"{node['name']} {node['summary']}")
@@ -197,7 +231,8 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
     kept: dict[str, dict] = {}
     rank = {t: i for i, t in enumerate(TYPE_PRIORITY)}
     for n in data.get("nodes", []):
-        if has_secret(n):
+        is_me = normalize_name(n["name"]) == "me"
+        if has_secret(n) or (talks_about_secrets(n) and not is_me):
             dropped["secret"] += 1
             continue
         if not grounded(n, source):
@@ -206,7 +241,6 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
         if low_value(n):
             dropped["low_value"] += 1
             continue
-        is_me = normalize_name(n["name"]) == "me"
         question_only = from_question_only(n, source, statements)
         if question_only and not is_me and n["type"] not in QUESTION_ENTITY_TYPES:
             dropped["question"] += 1  # an open question is not a decision, task or preference
@@ -214,7 +248,8 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
         node = {k: n[k] for k in ("type", "name", "summary", "confidence")}
         if is_me:
             node["type"] = "person"  # the user is always the person node "Me"
-        if is_me and (question_only or _META_SUMMARY.search(node["summary"]) or _CHATTER_FACT.search(node["summary"])):
+        if is_me and (question_only or talks_about_secrets(node) or _META_SUMMARY.search(node["summary"])
+                      or _CHATTER_FACT.search(node["summary"])):
             node["summary"] = ""
         key = normalize_name(node["name"])
         if key in kept:

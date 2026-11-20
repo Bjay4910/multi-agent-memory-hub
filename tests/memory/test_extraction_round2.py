@@ -185,3 +185,82 @@ def test_me_summary_that_only_describes_the_question_is_blanked(summary):
     data = {"nodes": [node("Me", summary, "person", evidence="I'm building Trail Tracker")], "edges": []}
     cleaned, _ = quality.clean_extraction(data, "I'm building Trail Tracker. Which database should I use?")
     assert cleaned["nodes"][0]["summary"] == ""
+
+
+# -- round 2 review fixes ------------------------------------------------------------------------------------
+
+# 1. Indentation state lasts for the whole indented block under tool output.
+@pytest.mark.parametrize("text, gone", [
+    ("$ git log\n  a1b2c3 Fix my typo\n  d4e5f6 Bump version", ["d4e5f6 Bump version", "a1b2c3 Fix my typo"]),
+    ("$ npm test\n  we expected 3 but got 4\n  Tests: 1 failed", ["Tests: 1 failed", "we expected 3 but got 4"]),
+])
+def test_indented_tool_output_block_is_dropped_whole(text, gone):
+    out = quality.clean_message(text)
+    for line in gone:
+        assert line not in out
+
+
+def test_user_line_after_prompt_is_kept_but_following_output_is_not():
+    out = quality.clean_message("$ npm test\n  I switched Trail Tracker to Vitest\n  Tests: 3 passed")
+    assert "I switched Trail Tracker to Vitest" in out and "Tests: 3 passed" not in out
+
+
+# 2. First person means a whole word, not "I/O" or a path segment.
+@pytest.mark.parametrize("noise", ["Warning: I/O error on device sda", "Error: cannot find module 'me/utils'"])
+def test_bare_level_line_with_fake_first_person_is_dropped(noise):
+    assert quality.clean_message(noise) == ""
+
+
+def test_bare_warning_in_real_first_person_is_still_kept():
+    assert quality.clean_message("Warning: I am moving Trail Tracker to Rust") == "Warning: I am moving Trail Tracker to Rust"
+
+
+# 3. Shell continuation lines are noise even behind a "> " marker.
+@pytest.mark.parametrize("text", ["> --rm -it \\", "$ docker run \\\n> --rm -it \\\n> -e MODE=prod web:latest"])
+def test_shell_continuation_is_dropped(text):
+    assert quality.clean_message(text) == ""
+
+
+def test_quoted_prose_is_still_kept():
+    assert quality.clean_message("> I prefer tabs over spaces") == "I prefer tabs over spaces"
+
+
+# 4. Definition questions are general knowledge even when they name a multi-word Title Case thing.
+@pytest.mark.parametrize("q", ["What is Apache Kafka?", "What Is A Hash Map?", "How does React Native work?",
+                               "What's Apache Kafka?", "Explain Trail Tracker Pro?"])
+def test_definition_question_with_title_case_words_is_dropped(q):
+    assert quality.clean_message(q) == ""
+
+
+@pytest.mark.parametrize("q", ["Is Postgres right for Trail Tracker?", "Should Trail Tracker use Redis?"])
+def test_question_about_a_named_project_still_reaches_the_model(q):
+    assert quality.clean_message(q) == q
+
+
+def test_project_question_still_stores_the_project_end_to_end(tmp_path):
+    out = {"nodes": [node("Trail Tracker", "The user's project.", "project", evidence="Trail Tracker")], "edges": []}
+    _, nodes = run(msgs("Is Postgres right for Trail Tracker?"), Scripted(out), tmp_path)
+    assert [n.name for n in nodes] == ["Trail Tracker"]
+
+
+# 5. Nodes that talk about secrets, tokens or key variables are not stored.
+@pytest.mark.parametrize("bad", [
+    node("User's secret token", "The user has a secret token.", evidence="My token is"),
+    node("User set ANTHROPIC_API_KEY", "The user set their key to a redacted value.", evidence="I set ANTHROPIC_API_KEY"),
+    node("Bot Config", "The bot reads GITHUB_TOKEN from the environment.", "project", evidence="I set ANTHROPIC_API_KEY"),
+    node("Credentials", "The user stores an API key and a password for the bot.", evidence="I set ANTHROPIC_API_KEY"),
+])
+def test_node_about_secrets_is_dropped(bad):
+    source = "My token is [REDACTED]. I set ANTHROPIC_API_KEY=[REDACTED] for my bot."
+    cleaned, dropped = quality.clean_extraction({"nodes": [bad], "edges": []}, source)
+    assert cleaned["nodes"] == [] and dropped["secret"] == 1
+
+
+def test_me_summary_about_secrets_is_blanked_and_ordinary_key_words_are_kept():
+    source = "I rotated the key for Lumen Budget, my finance app. I set ANTHROPIC_API_KEY for my bot."
+    data = {"nodes": [node("Me", "The user set ANTHROPIC_API_KEY.", "person", evidence="I set ANTHROPIC_API_KEY"),
+                      node("Lumen Budget", "The user's finance app; they rotated the key.", "project", evidence="Lumen Budget")],
+            "edges": []}
+    cleaned, _ = quality.clean_extraction(data, source)
+    by_name = {n["name"]: n for n in cleaned["nodes"]}
+    assert by_name["Me"]["summary"] == "" and "Lumen Budget" in by_name
