@@ -53,7 +53,7 @@ Migrations are versioned in `schema_version` (currently **2**) and applied in or
 |-------|---------|
 | `nodes` | `id`, `type`, `name`, `norm_name`, `summary`, `aliases` (`|`-separated), `status` (`active` / `superseded`), `confidence` (0–1), `created_at`, `updated_at` |
 | `edges` | `id`, `src` → nodes, `dst` → nodes, `relation`, `created_at`; unique on (`src`, `dst`, `relation`) |
-| `provenance` | `id`, `node_id` **or** `edge_id`, `session_id`, `agent` (the extractor), `source` (`session` / `manual` / `clipboard` / `mcp-desktop` / `claude-code`), `ts` |
+| `provenance` | `id`, `node_id` **or** `edge_id`, `session_id`, `agent` (the extractor), `source` (`session` / `manual` / `clipboard` / `mcp-desktop` / `claude-code` / `antigravity`), `ts` |
 | `nodes_fts` | FTS5 over `name`, `summary`, `aliases` (Porter stemming), kept in sync by triggers |
 | `meta` | key/value; `demo=1` marks the made-up demo database |
 | `schema_version` | one row: the applied migration version |
@@ -250,13 +250,16 @@ Raw and temporary, unlike the curated graph above.
   (`$AGENT_ROOM_HOME/working/`). The folder is 0700 and files are 0600. Like the
   vault, it refuses to live in a git work tree, inside this repository or near
   the key folder.
-- **What:** `id` (`claude-code-<UTC stamp>-<hex>`), `source`, `project` (the
+- **What:** `id` (`claude-code-<UTC stamp>-<hex>` or `antigravity-...`), `source`, `project` (the
   project folder name), `captured_at`, `updated_at`, `expires_at`,
   `promoted_at`, `dropped_turns`, and `turns` (`role` `user` or `assistant`,
-  `ts`, `text`). The Claude Code session id is stored only as a hash, used to
-  find the note again when the session is resumed.
+  `ts`, `text`). The Claude Code session id or Antigravity conversation id is
+  stored only as a hash, used to find the note again when the session goes on.
 - **Written by:** `room capture claude` (the Claude Code `SessionEnd` hook,
-  opt-in). Text is redacted before the write; if a secret pattern still
+  opt-in) and `room capture antigravity` (the Antigravity CLI `Stop` hook,
+  opt-in with the same switch; it runs after each turn and keeps only your typed
+  request and the final reply of each turn; the room's own `agy` calls, any
+  `agy -p` run, and the Antigravity desktop app and IDE are not captured). Text is redacted before the write; if a secret pattern still
   matches, nothing is written. Sessions with fewer than 2 typed messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock
@@ -268,7 +271,7 @@ Raw and temporary, unlike the curated graph above.
 - **Promotion:** `room working promote <id>` writes the note as a session log
   (`sessions/<id>.jsonl`; your turns as role `user`, the assistant's as role
   `agent`) and runs extraction. By default only your own words are extracted,
-  and the nodes carry source `claude-code`. The note is marked promoted only
+  and the nodes carry source `claude-code` or `antigravity`. The note is marked promoted only
   when extraction has stored it; if extraction was only queued (for example,
   Ollama was not running), it is marked `promote_queued_at` and
   `room working promote` can be run again, reusing the same session log. A

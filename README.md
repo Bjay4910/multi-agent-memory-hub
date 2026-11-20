@@ -310,18 +310,20 @@ flowchart LR
   run shell commands: read-only search and show of long-term memory, read-only
   search of the working layer and the latest captured session, plus
   append-only saving of notes on explicit request. See [Claude desktop app](#claude-desktop-app).
-- **Claude Code capture (opt-in).** Finished Claude Code sessions can be saved
-  into the working layer automatically, so you don't have to copy and paste
-  between chats. See [Claude Code capture](#claude-code-capture).
+- **Session capture (opt-in).** Claude Code sessions and Antigravity CLI
+  conversations can be saved into the working layer automatically, so you
+  don't have to copy and paste between chats. See
+  [Claude Code capture](#claude-code-capture) and
+  [Antigravity capture](#antigravity-capture).
 
 #### Two layers: working and long-term
 
 In plain words: the working layer is a short-term notebook of recent chats,
 and the long-term layer is the curated memory. Capture fills the notebook
-automatically, but only if you turn it on, only after a Claude Code session
-has ended (not while it is running), and only for Claude Code: Antigravity
-sessions are not captured yet. Secrets are redacted before anything is
-written, and notes expire after 14 days.
+automatically, but only if you turn it on. Claude Code sessions are saved
+after they end; Antigravity CLI conversations are saved after each turn,
+because `agy` has no end-of-session hook. Secrets are redacted before
+anything is written, and notes expire after 14 days.
 
 - **Working layer** (`~/.agent-room/working/`): what was said in recent
   sessions, kept almost as it was (only your typed text and the assistant's
@@ -370,6 +372,44 @@ The room never captures itself: every CLI agent it starts gets
 use `--no-session-persistence`, so they leave no transcript, and transcripts
 from print/SDK mode (`entrypoint` `sdk-*`) are skipped too.
 
+#### Antigravity capture
+
+Antigravity CLI (`agy`) conversations use the same on/off switch
+(`room capture enable`) and the same working layer, with source
+`antigravity`. The hook is a separate group named `agent-room` in
+`~/.gemini/config/hooks.json`:
+
+```bash
+room capture install-hook --agent antigravity --print       # show the group
+room capture install-hook --agent antigravity --apply       # add only the agent-room group (timestamped backup)
+room capture install-hook --agent antigravity --uninstall   # remove only that group (backup again)
+```
+
+The installer adds or removes only the text of the `agent-room` group, so
+other groups in the file (such as the power manager's `agent-power`) stay
+byte-for-byte the same. It refuses a file that is not valid JSON, and running
+it twice changes nothing. If you set the group to `"enabled": false`,
+`room capture status` says "installed but disabled" and `--apply` leaves it
+off; turn it back on by editing the file.
+
+`agy` has no hook for the end of a session, so the hook runs on `Stop`, which
+fires when the agent finishes a turn. It hands the payload to a background
+process, prints `{}` and exits 0 at once, so `agy` is never slowed down or
+broken. The background process reads the conversation's transcript under
+`~/.gemini/antigravity-cli/brain/`, keeps only your typed request and the
+assistant's final reply of each turn (no thinking, tool calls, tool output,
+file contents, metadata or system messages; very long messages are cut and
+marked), redacts secrets and updates one working note per conversation. Running
+the hook again for the same turn stores nothing new. A conversation needs at
+least 2 typed messages and 400 characters before a note is created.
+
+Not captured: the room's own `agy` calls (`ROOM_SPAWNED=1` reaches the hook,
+and a conversation whose first message contains the room's prompt is skipped), any `agy -p`
+or `--print` run, and conversations from the Antigravity desktop app or IDE
+(they keep transcripts in other folders, and this has not been tested there).
+The conversation id must be a plain UUID and the transcript must be the one at
+that id's path, so a payload cannot point capture at another file.
+
 #### Claude desktop app
 
 `room mcp` speaks MCP over stdio and exposes exactly five tools:
@@ -378,9 +418,10 @@ from print/SDK mode (`entrypoint` `sdk-*`) are skipped too.
 - `memory_show(id)`: read-only, the same as `room memory show`
 - `memory_remember(text, tag="desktop")`: the one write. It saves a note the
   way `room remember` does, and only appends.
-- `working_search(query, limit=5)`: read-only search of the working layer
+- `working_search(query, limit=5, agent=None)`: read-only search of the
+  working layer; `agent` (`claude-code` or `antigravity`) limits it to one tool
 - `session_latest(agent="claude-code", n=1)`: read-only, the most recent
-  captured session(s)
+  captured session(s); `agent="antigravity"` for Antigravity
 
 The two working-layer tools only open files for reading: they never create,
 change or delete anything, and they skip expired notes. Their output is
@@ -502,6 +543,11 @@ Keyword search has no notion of meaning; see the limits below.
   repo), `--apply` and `--uninstall` replace the link with a regular file. The
   backup keeps the old content, but the link is gone. Use `--print` and add the
   entry by hand in that case.
+- **Antigravity notes change while a conversation goes on.** They are updated
+  after every turn, so `session_latest` can show a conversation that is still
+  open. A one-question `agy` conversation is never stored (too short). The
+  reply kept for a turn is the last one written when the hook ran; if `agy`
+  adds another reply to the same turn later, it is stored as an extra turn.
 - **A forked Claude Code session is captured twice.** `claude --resume
   --fork-session` gives the fork a new session id, so its working note repeats
   the history it copied from the original session. There is no command to
@@ -554,7 +600,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 362 tests (all passing on this version). It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 435 tests (all passing on this version). It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
