@@ -322,8 +322,10 @@ def test_withheld_values_drop_nodes_even_without_a_secret_pattern():
     assert [n["name"] for n in cleaned["nodes"]] == ["Harbor Log"] and dropped["secret"] == 1
 
 
+# Stage 8: "the token is valid for one hour" was removed from this list; with no status-word exception it is
+# masked now (accepted trade-off, see test_the_accepted_trade_off_a_status_sentence_is_masked_too).
 @pytest.mark.parametrize("plain", [
-    "the token is valid for one hour", "Trail Tracker's token limit is 4096", "We renamed PRIMARY_KEY to USER_ID",
+    "Trail Tracker's token limit is 4096", "We renamed PRIMARY_KEY to USER_ID",
     "PassVault is a password manager", "CREATE TABLE users (id INT PRIMARY KEY, api_key_hash TEXT)",
 ])
 def test_plain_technical_text_has_no_credential_value(plain):

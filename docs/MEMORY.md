@@ -171,24 +171,27 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    Tracker, which stack should I use?" stores no Trail Tracker project, while
    "Which database should Harbor Log use?" still keeps Harbor Log. A node is also dropped when its confidence is below
    0.5, or
-   when any secret pattern matches its name, summary or evidence, or when its
-   name or summary is secret talk; for "Me" only the summary is emptied. Secret
-   talk is exactly one of:
-   - a credential value: a label followed by `=` and one token
-     ("API_KEY=abcd1234", "client_secret = xyz"); or a label followed by `:`,
-     `is` or `was` and a value that runs to the end of the clause ("pwd:
-     orange", "the password is swordfish", "my passphrase is blue sky mining"),
-     with or without digits or "my"; or `Authorization: ...` / `Bearer <value>`.
-     A value that starts with a status word is not a secret ("the token is
-     valid for one hour"; the words are valid, invalid, expired, expiring,
-     required, optional, missing, empty, unset, set, revoked, stored, saved,
-     hashed, encrypted, generated, rotated, needed, used, being, not, now,
-     still, too, in, on, at, for, from, of, a, an, the, signed, issued, sent,
-     passed, checked, validated, verified, refreshed, cached). The labels are
-     client secret, secret key, api key, access key, private key, passphrase,
-     passcode, password, passwd, pwd, secret and token; in each, a space may
-     also be `_` or `-` (api key, api_key, api-key), and a variable prefix is
-     allowed (`DB_PASSWD`, `GH_PAT`; `pat` only with a prefix);
+   when any secret pattern matches its name, summary or evidence, or when a
+   credential value (below) appears in its name, summary or evidence (any
+   node, "Me" too), or when its name or summary is other secret talk; for "Me"
+   only the summary is emptied for those. Secret talk is exactly one of:
+   - a credential value: a label, then up to 6 filler words, then a
+     connector (`=`, `:`, `is`, `was`, `is now`, `set to`, `is set to`,
+     `equals`, `is equal to`), then a value that runs to the end of the clause
+     ("API_KEY=abcd1234", "pwd: orange", "the password is swordfish", "my
+     passphrase is blue sky mining", "The password for Harbor Log is
+     now42abc", "the password (for prod) is ...", "the token for harbor.log
+     is ..."); or `Authorization: ...` / `Bearer <value>`. A filler word holds
+     no `,` `;` `:` `=` `!` `?` and no `.` except inside a name. There is no
+     status-word exception (stage 8): "The password is not-so-secret-42" and
+     "the token is valid for one hour" are both masked; losing the second
+     fact is the accepted price. The labels are client secret, secret key,
+     api key, access key, private key, passphrase, passcode, password,
+     passwd, pwd, secret, token and key; in each, a space may also be `_` or `-` (api
+     key, api_key, api-key), and a variable prefix is allowed (`DB_PASSWD`,
+     `GH_PAT`; `pat` only with a prefix). A label directly followed by manager,
+     limit, count, budget, window or policy (or their plurals) names a thing,
+     not a credential ("token limit is 4096", "password policy is strict");
    - a credential variable name with one of these suffixes: `_API_KEY`,
      `_ACCESS_KEY`, `_SECRET_KEY`, `_PRIVATE_KEY`, `_CLIENT_SECRET`, `_SECRET`,
      `_TOKEN`, `_PASSWORD`, `_PASSWD`, `_PAT` ("User set ANTHROPIC_API_KEY");
@@ -199,8 +202,8 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
 
    Plain technical words are kept: "Trail Tracker uses JWT tokens", "an offline
    password manager", "a daily limit of 200,000 tokens", "renamed PRIMARY_KEY
-   to USER_ID". A bare "key" ("rotated the key for Lumen Budget") is not
-   matched. Before the model, the pre-filter replaces every credential value
+   to USER_ID". A bare "key" with no connector and value ("rotated the key
+   for Lumen Budget") is not matched; "the key for Lumen Budget is abc" is. Before the model, the pre-filter replaces every credential value
    with `[REDACTED]` (the rest of the line is kept), and the post-filter drops
    any node that still contains one of those withheld values, or any word of
    one that the model never saw, even from a model that copies it. The same name
@@ -295,6 +298,13 @@ nodes); those were tested with new unit tests, not tuned on the held-out cases.
 | held-out `control` (3) | 1.000 / 0.333 / 0.500 | 1.000 / 0.333 / 0.500 | 1.000 / 0.500 / 0.667 | 1.000 / 0.333 / **0.500** |
 | held-out `independent` (5) | 0.833 / 0.688 / 0.753 | 0.833 / 0.667 / 0.741 | 0.833 / 0.667 / 0.741 | 0.833 / 0.667 / **0.741** |
 
+Stage 8 (stricter credential masking, 1 run each): original 0.900 / 0.800 /
+0.847, up from 0.839. In `secret-and-tool-noise`, `API_TOKEN=<secret> in it`
+is now masked to the end of its clause, the prompt changed, and the model
+stored one more useful node ("Deploy Okapi Notes to Fly.io"); that case was
+inspected only to explain the change. Held-out 0.882 / 0.652 / 0.750 and
+regression 0.889 / 0.800 / 0.842 are unchanged. Secret leaks 0.
+
 Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
 tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
 control group dropped from 0.667 to 0.500: the node "Rotate LUMEN_KEY for
@@ -366,18 +376,34 @@ Known gaps in the question and noise rules (each is a heuristic):
   `test_over_masking_loss_is_counted_not_silent` and a strict xfail). The drop
   is counted in the extraction result's `dropped` total, not itemised. If the
   name appears anywhere else in the message, the node is kept.
-- A password that is itself one of the status words ("the token is set", "the
-  password is expired") is not masked.
+- Stage 8 closed two ways a password could be stored: filler words between
+  the label and "is" ("The password for Harbor Log is now42abc") and a value
+  that starts with a status word ("The password is not-so-secret-42"). A
+  fuzz test checks 25,480 combinations (13 labels x 0-6 filler words x 7
+  connectors x 5 value shapes x 8 message shapes, fixed seed) against the
+  prompt, `memory.db`/-wal/-shm, `memory_queue` and logs: 0 leaks (10,848 of
+  23,520 leaked before, on the 12 old labels). What remains (can store a
+  secret): more than 6 filler words; a filler word with a comma, colon or
+  sentence end ("the password, for prod, is x"); a value before its label
+  ("hunter2 is my password"); a label directly followed by manager, limit,
+  count, budget, window or policy ("the password policy is hunter2"); a label
+  that is not on the list ("the PIN is 4821", "the credentials are x").
+- Stage 8 also costs facts (security over recall): any sentence with a label,
+  a connector and a value is masked and its node dropped, so "the token is
+  valid for one hour", "the key is to keep it small" and "the secret is good
+  tests" are lost, and `=` now masks to the end of its clause as `:` and `is`
+  already did.
 - A credential variable whose name is not on the suffix list, such as
   `LUMEN_KEY`, is stored as a name ("Rotate LUMEN_KEY for Lumen Budget"); its
   value is never stored. This is the price of keeping `PRIMARY_KEY`, and it is
   why the held-out control group dropped in round 3 (see the table).
-- The redaction layer (`room/memory/redact.py`, used by capture and the
-  working layer) only catches known token shapes and `label=value` pairs with
-  6+ characters, so a prefix-less password ("the password is swordfish") in a
-  working-layer transcript is not redacted there. That is pre-existing and out
-  of scope here; the masking above applies only on the way into the long-term
-  graph.
+- **Open, tracked separately (pre-existing, not changed here):** the
+  redaction layer (`room/memory/redact.py`, used by capture and the working
+  layer) only catches known token shapes and `label=value` pairs with 6+
+  characters, so a prefix-less password ("the password is swordfish") in a
+  working-layer transcript is not redacted there, and `working_search` (also
+  through the room MCP server) can return it. The masking above applies only
+  on the way into the long-term graph.
 - A fact before a question is kept only when a comma separates it from the
   question and it opens with a factual marker. These lose a real fact
   (checked): "I prefer Rust so which parser should I pick?" (no comma), "I

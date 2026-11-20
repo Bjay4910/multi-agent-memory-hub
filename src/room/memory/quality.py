@@ -97,24 +97,29 @@ _DEFINITION = re.compile(r"^\s*(what(?:'s|\s+(?:is|are|was|were))|who(?:'s|\s+(?
 # -- secrets without a recognizable prefix ("my password is hunter2", "client_secret = xyz") --
 # Labels, written with spaces; any one space may also be "_" or "-" ("api key", "api_key", "api-key").
 SECRET_LABELS = ("client secret", "secret key", "api key", "access key", "private key", "passphrase", "passcode",
-                 "password", "passwd", "pwd", "secret", "token")
+                 "password", "passwd", "pwd", "secret", "token", "key")
 # Credential variable names, as suffixes (ANTHROPIC_API_KEY, GITHUB_TOKEN, DB_PASSWD, GH_PAT; PAT needs a prefix).
 SECRET_VAR_SUFFIXES = ("API_KEY", "ACCESS_KEY", "SECRET_KEY", "PRIVATE_KEY", "CLIENT_SECRET", "SECRET", "TOKEN",
                        "PASSWORD", "PASSWD", "PAT")
 _LABEL_ALTS = "|".join(label.replace(" ", "[ _-]?") for label in SECRET_LABELS)
-_LABEL = rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-9]+_)+pat)(?![A-Za-z0-9])"
-_VALUE = r"[^\s,;]+"
-# After "is" / ":" the value runs to the end of the clause, so a passphrase ("blue sky mining") is
-# masked whole; this can over-mask the rest of a clause, which is accepted.
+# A label directly followed by one of these nouns names a thing, not a credential ("token limit is 4096",
+# "password policy is strict", "password manager"); the same list as _SECRET_NOUN below, plus policy.
+_COMPOUND = r"(?![ \t_-]*(?:managers?|limits?|counts?|budgets?|windows?|polic(?:y|ies))\b)"
+_LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-9]+_)+pat)(?![A-Za-z0-9])"
+          rf"{_COMPOUND}")
+# Up to 6 words may sit between the label and the connector ("the password for Harbor Log is ...",
+# "the password (for prod) is ...", "the token for harbor.log is ..."); a word holds no clause or sentence end.
+_FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
+# The connector: "=", ":", "is", "was", "is now", "set to", "is set to", "equals", "is equal to".
+_CONNECT = (r"(?:[ \t]*[:=][ \t]*"
+            r"|[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|(?:is|was)(?:[ \t]+now)?)"
+            r"[ \t]+)")
+# The value runs to the end of the clause, so a passphrase ("blue sky mining") is masked whole. There is
+# no status-word exception: "the token is valid for one hour" is masked too (security over recall), and
+# this can over-mask the rest of a clause, which is accepted.
 _CLAUSE = r"[^\s,;][^,;\n]*?(?=\s*(?:[,;]|[.!?](?:\s|$)|\n|$))"
-# A value that starts with one of these is a status, not a secret ("the token is valid for one hour").
-_STATUS = (r"(?:valid|invalid|expired|expiring|required|optional|missing|empty|unset|set|revoked|stored|saved|hashed|"
-           r"encrypted|generated|rotated|needed|used|being|not|now|still|too|in|on|at|for|from|of|a|an|the|signed|"
-           r"issued|sent|passed|checked|validated|verified|refreshed|cached)\b")
 _CREDENTIAL = re.compile(
-    rf"{_LABEL}\s*=\s*(?P<a>{_VALUE})"                                          # API_KEY=x (one token)
-    rf"|{_LABEL}\s*:\s*(?!{_STATUS})(?P<b>{_CLAUSE})"                            # pwd: orange
-    rf"|{_LABEL}\s+(?:is|was)\s+(?!{_STATUS})(?P<c>{_CLAUSE})"                   # the password is swordfish
+    rf"{_LABEL}{_FILLER}{_CONNECT}(?P<a>{_CLAUSE})"                    # the password for Harbor Log is x; KEY=x
     r"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>\S+)"      # Authorization: Bearer x
     r"|\bbearer\s+(?P<e>[A-Za-z0-9._~+/=-]{8,})", re.I)
 _SECRET_VAR = re.compile(r"\b(?:[A-Z0-9]+_)*(?:" + "|".join(v for v in SECRET_VAR_SUFFIXES if v != "PAT")
@@ -376,7 +381,9 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
     for n in data.get("nodes", []):
         is_me = normalize_name(n["name"]) == "me"
         fields = " ".join(str(n.get(k) or "") for k in ("name", "summary", "evidence"))
-        if (has_secret(n) or (talks_about_secrets(n) and not is_me)
+        # Any node, "Me" too, whose name, summary or evidence holds a label, a connector and a value is
+        # dropped ("The password for Harbor Log is x"): losing the fact is the price.
+        if (has_secret(n) or (talks_about_secrets(n) and not is_me) or _CREDENTIAL.search(fields)
                 or any(len(v) >= 3 and v.lower() in fields.lower() for v in withheld)):
             dropped["secret"] += 1
             continue

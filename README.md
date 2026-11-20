@@ -527,7 +527,7 @@ Keyword search has no notion of meaning; see the limits below.
     key variable; a factual premise before a question ("Since I am joining
     Corvid Analytics, what should I read?") is kept, a hypothetical one ("If I
     joined Google, ...") and the question itself are not. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
-    times). A 13-case held-out set, written before the fixes by the same author
+    times), 0.847 after the stricter secret masking of stage 8. A 13-case held-out set, written before the fixes by the same author
     (a sanity check, not an independent benchmark): F1 0.649 to 0.769 after
     round 2, then 0.750 in round 3, because keeping words like "PRIMARY_KEY"
     also lets a note that names the variable `LUMEN_KEY` through (the name
@@ -625,7 +625,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 790 tests (counted with `pytest --collect-only`; 787 pass and 3 are expected failures, `xfail`, marking known gaps). It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 824 tests (counted with `pytest --collect-only`; 821 pass and 3 are expected failures, `xfail`, marking known gaps). One of them is a 25,480-combination secret-leak fuzz test, which takes about a minute. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
