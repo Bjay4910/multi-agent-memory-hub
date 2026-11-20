@@ -513,6 +513,14 @@ Keyword search has no notion of meaning; see the limits below.
     - stored guesses from the assistants' advice as facts (extraction now reads
       only your own words by default)
     - once filed a one-off request as a "project"
+    - stored chatter ("reply with just the word hi"), its own guesses about
+      what a company or app is, and the same thing under several types
+    The last ones are now reduced by filters before and after the model: each
+    fact must quote your own words, and chatter, questions, tool output and
+    secrets are dropped. On a fixed set of 7 test transcripts this raised
+    precision from 0.495 to 0.733 and recall from 0.767 to 0.900 (see
+    [docs/MEMORY.md](docs/MEMORY.md#measuring-extraction)); it still keeps some
+    unsupported details.
     Review notes with `room memory search` and `room memory show`, and fix
     them with `room memory forget`. `MEMORY_EXTRACTOR=claude` gives better
     extraction but sends the redacted text to that provider.
@@ -600,7 +608,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 435 tests (all passing on this version). It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 469 tests (all passing on this version). It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

@@ -72,7 +72,8 @@ Timestamps are ISO 8601 UTC with a `Z` suffix.
   name, turns punctuation and underscores into spaces, and drops a leading "the".
   So "The Agent-Room" and "agent_room" are the same project.
 - For **person, organization, project, document and skill** nodes, new
-  information is **merged**: new sentences are appended to the summary,
+  information is **merged**: new sentences are appended to the summary (a
+  sentence sharing at least 80% of its words with one already there is skipped),
   confidence becomes the maximum, and a differently spelled name becomes an alias.
 - For **fact, decision, preference, application and task** nodes, a newer,
   different summary **supersedes** the old node. The old node is kept with
@@ -92,15 +93,33 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    answer. The default exists because a real run showed a feedback loop: an
    answer built from recalled memory, including a `[X]%` placeholder, was stored
    back as a "project result". The text is redacted and capped at 8,000 characters.
+   Before that, a pre-filter (`room/memory/quality.py`) drops messages that are
+   only chatter (greetings, thanks, "reply with just the word ...") or an
+   impersonal general question ("what is a hash map?"), and removes code blocks,
+   tracebacks, shell prompts and symbol-heavy lines. If nothing is left, the
+   model is not called and the result is "nothing to extract".
 2. **Extractor.** `MEMORY_EXTRACTOR` is `hermes` (default), `claude` or `gemini`.
    The prompt asks for strict JSON in this shape:
-   `{"nodes":[{type,name,summary,confidence}],"edges":[{src,relation,dst}]}`.
-   With Hermes, Ollama's structured outputs constrain decoding to the JSON
-   Schema (`EXTRACTION_SCHEMA`), so node types and relations can only be valid
-   values.
+   `{"nodes":[{type,name,summary,confidence,evidence}],"edges":[{src,relation,dst}]}`,
+   where `evidence` is a short quote of your own words. The prompt lists what not
+   to record (greetings, the question itself, general knowledge, guessed details,
+   logs) and has one placeholder example. With Hermes, Ollama's structured outputs
+   constrain decoding to the JSON Schema (`EXTRACTION_SCHEMA`, which requires
+   `evidence`), so node types and relations can only be valid values, and the
+   call uses temperature 0, so the same text gives the same result.
 3. **Validation.** Every output is validated against the schema, whichever
    backend produced it: types, lengths, confidence in [0, 1], known relations,
    no extra keys.
+   Then a post-filter drops a node when its evidence quote is not in your own
+   words (exact, or at least 80% of its words), when it records chatter or your
+   question ("the user asked about ..."), when its confidence is below 0.5, or
+   when any secret pattern matches its name, summary or evidence. The same name
+   twice in one output is stored once, and a fact the graph already holds under
+   another name (same type, every sentence sharing at least 80% of its words) is
+   not added again. Links to a dropped node are dropped. A "Me" node is always a
+   person, and a summary that only describes the conversation is left empty.
+   Nodes without evidence (from backends without structured output) are kept as
+   before.
 4. **Repair.** If the output is invalid, one repair prompt lists the errors.
 5. **Fallback.** If it is still invalid, or the agent failed or timed out
    (`MEMORY_EXTRACT_TIMEOUT`, default 300 s), `MEMORY_EXTRACTOR_FALLBACK` is
@@ -113,6 +132,27 @@ While extracting, the presence file `~/.agent-room/presence/memory.json` says
 `working` (see [PRESENCE.md](PRESENCE.md)). Extraction runs after the answer is
 printed, and no failure in it changes the room's result. Ctrl-C during
 extraction queues the session.
+
+### Measuring extraction
+
+`python -m room.memory.extraction_eval --runs 3` runs the real extractor (local
+Hermes) on 7 made-up, redacted transcripts in `tests/eval/extraction_cases.json`
+(a project, a decision and preference, two applications, chatter only, an
+assistant's guess, a fake secret with a traceback, and a fact already in the
+graph), each in a temporary home. It reports recall of the expected facts,
+precision (nodes that match an expected or allowed fact, are supported by the
+user's words and hold no forbidden word), unsupported nodes, forbidden words,
+secret leaks and duplicates. Measured with `hermes3:8b` on this version:
+
+| | recall | precision | F1 | unsupported nodes | forbidden | leaks |
+|---|---|---|---|---|---|---|
+| before (3 runs, mean) | 0.767 (0.600–0.900) | 0.495 | 0.598 | 31 of 61 | 2 | 0 |
+| after (3 runs, all equal) | **0.900** | **0.733** | **0.808** | 12 of 45 | 0 | 0 |
+
+The "supported" check counts a node as unsupported when most of its words are
+not in your text, so an honest paraphrase can count against it, and the
+duplicate count also flags a task named after its project. Seven cases are a
+small sample.
 
 ## Recall
 
