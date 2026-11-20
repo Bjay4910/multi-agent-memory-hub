@@ -529,6 +529,67 @@ def test_status_reports_both_hooks(env, isolated_home, capsys):
     assert "installed" in line and "not installed" not in line
 
 
+# -- room mcp --------------------------------------------------------------------------------------------
+
+# sha256 of TOOLS[3:5] with each description and the 'agent' property removed, recorded before this change.
+WORKING_TOOLS_REST_SHA = "a1f12d4155b02494b3d4179dfe3ace271d849ccbc1e6a9a0b8fdd41b42b03cd3"
+
+
+def test_working_tools_change_only_in_agent_and_descriptions():
+    tools = copy.deepcopy(mcp_server.TOOLS[3:5])
+    assert tools[1]["inputSchema"]["properties"]["agent"]["enum"] == ["claude-code", "antigravity"]
+    assert tools[1]["inputSchema"]["properties"]["agent"]["default"] == "claude-code"
+    assert "agent" in tools[0]["inputSchema"]["properties"] and "agent" not in tools[0]["inputSchema"].get("required", [])
+    for t in tools:
+        assert "Antigravity" in t["description"]
+        t.pop("description")
+        t["inputSchema"]["properties"].pop("agent")
+    assert hashlib.sha256(json.dumps(tools, sort_keys=True).encode()).hexdigest() == WORKING_TOOLS_REST_SHA
+
+
+def _call(name, **args):
+    resp = mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}})
+    return resp["result"]["content"][0]["text"], resp["result"].get("isError", False)
+
+
+def test_mcp_session_latest_and_search_by_agent(env, enabled, isolated_home):
+    capture_agy.capture_antigravity(two_turns(env).hook())
+    working.upsert("claude-code", "cc-1", "cc-proj", [
+        {"key": f"k{i}", "role": r, "ts": "", "text": f"Claude Code Okapi-Lantern note number {i} " * 6}
+        for i, r in enumerate(["user", "assistant", "user", "assistant"])])
+    text, err = _call("session_latest", agent="antigravity")
+    assert not err and "agy-demo" in text and "cc-proj" not in text and "untrusted" in text.lower()
+    text, err = _call("session_latest")
+    assert not err and "cc-proj" in text and "agy-demo" not in text
+    text, _ = _call("working_search", query="Okapi-Lantern")
+    assert "agy-demo" in text and "cc-proj" in text
+    text, _ = _call("working_search", query="Okapi-Lantern", agent="antigravity")
+    assert "agy-demo" in text and "cc-proj" not in text
+    text, _ = _call("working_search", query="Okapi-Lantern", agent="claude-code")
+    assert "cc-proj" in text and "agy-demo" not in text
+    text, err = _call("working_search", query="x", agent="hermes")
+    assert err and "'agent' must be one of" in text
+    text, err = _call("session_latest", agent="../x")
+    assert err
+
+
+def test_mcp_responses_stay_capped(env, enabled, isolated_home, monkeypatch):
+    for i in range(5):
+        capture_agy.capture_antigravity(two_turns(env, cid=f"{i}{CID[1:]}").hook())
+    text, _ = _call("session_latest", agent="antigravity", n=5)
+    assert len(text) <= mcp_server.MAX_RESPONSE_CHARS
+
+
+def test_note_ids_are_not_redacted_in_tool_output(env, enabled, isolated_home):
+    capture_agy.capture_antigravity(two_turns(env).hook())
+    [note] = notes(isolated_home)
+    assert note["id"].startswith("antigravity-")
+    text, _ = _call("session_latest", agent="antigravity")
+    assert note["id"] in text and "[REDACTED]" not in text
+    text, _ = _call("working_search", query="Okapi-Lantern", agent="antigravity")
+    assert note["id"] in text
+
+
 def test_promote_antigravity_note_keeps_its_source(env, enabled, isolated_home, monkeypatch):
     from room.memory.store import MemoryStore
     from test_working import ScriptedHermes
