@@ -274,3 +274,21 @@ def test_me_is_always_stored_as_a_person(tmp_path, wrong_type):
     out = {"nodes": [node("Me", "Building Trail Tracker.", wrong_type, evidence="I'm building Trail Tracker")], "edges": []}
     _, nodes = run(msgs("I'm building Trail Tracker."), Scripted(out), tmp_path)
     assert [(n.name, n.type) for n in nodes] == [("Me", "person")]
+
+
+# -- blank evidence -------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_evidence_is_ungrounded_and_dropped(tmp_path, blank):
+    made_up = node("Moon Base", "The user lives on the moon.", "fact", evidence=blank)
+    data, errors = ex.validate_extraction({"nodes": [made_up], "edges": []})
+    assert errors == []
+    cleaned, dropped = quality.clean_extraction(data, "I'm building Trail Tracker.")
+    assert cleaned["nodes"] == [] and dropped["ungrounded"] == 1
+    _, nodes = run(msgs("I'm building Trail Tracker."), Scripted({"nodes": [made_up], "edges": []}), tmp_path)
+    assert "Moon Base" not in [n.name for n in nodes]
+
+
+def test_schema_requires_non_empty_evidence():
+    props = ex.EXTRACTION_SCHEMA["properties"]["nodes"]["items"]["properties"]
+    assert props["evidence"].get("minLength") == 1

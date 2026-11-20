@@ -108,7 +108,7 @@ EXTRACTION_SCHEMA = {
                     "name": {"type": "string", "minLength": 1, "maxLength": NAME_MAX_CHARS},
                     "summary": {"type": "string", "maxLength": SUMMARY_MAX_CHARS},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                    "evidence": {"type": "string", "maxLength": EVIDENCE_MAX_CHARS},
+                    "evidence": {"type": "string", "minLength": 1, "maxLength": EVIDENCE_MAX_CHARS},
                 },
                 "required": ["type", "name", "summary", "confidence", "evidence"],
                 "additionalProperties": False,

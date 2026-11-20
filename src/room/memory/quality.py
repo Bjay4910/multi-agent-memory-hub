@@ -6,8 +6,9 @@ tool noise (code fences, tracebacks, shell prompts, symbol-heavy lines). If noth
 is left, the model is not called at all.
 
 After the model (``clean_extraction``): keep only nodes that are
-- grounded: their ``evidence`` quote is in the user's own text (nodes without
-  evidence, from backends without structured output, are kept as before),
+- grounded: their ``evidence`` quote is in the user's own text (nodes with no
+  evidence field, from backends without structured output, are kept as before;
+  a blank quote is ungrounded),
 - worth keeping: not chatter, not the user's question restated, confidence >= 0.5,
 - secret-free: any secret pattern in name, summary or evidence drops the node,
 - new: not the same name twice in one output, and not a fact the graph already holds
@@ -108,15 +109,16 @@ def _content_words(text: str) -> set[str]:
 
 
 def grounded(node: dict, source: str) -> bool:
-    norm_source = _norm(source)
-    evidence = node.get("evidence")
-    if isinstance(evidence, str) and evidence.strip():
-        ev = _norm(evidence)
-        if ev and ev in norm_source:
-            return True
-        words = _content_words(evidence)
-        return bool(words) and len(words & _content_words(source)) / len(words) >= EVIDENCE_MIN_OVERLAP
-    return True  # no evidence (backends without structured output): kept, as before
+    if "evidence" not in node:
+        return True  # no evidence field (backends without structured output): kept, as before
+    evidence = node["evidence"]
+    if not isinstance(evidence, str) or not evidence.strip():
+        return False  # a blank quote grounds nothing
+    ev = _norm(evidence)
+    if ev and ev in _norm(source):
+        return True
+    words = _content_words(evidence)
+    return bool(words) and len(words & _content_words(source)) / len(words) >= EVIDENCE_MIN_OVERLAP
 
 
 def low_value(node: dict) -> bool:

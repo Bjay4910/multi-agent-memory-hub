@@ -118,8 +118,9 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    another name (same type, every sentence sharing at least 80% of its words) is
    not added again. Links to a dropped node are dropped. A "Me" node is always a
    person, and a summary that only describes the conversation is left empty.
-   Nodes without evidence (from backends without structured output) are kept as
-   before.
+   Nodes with no `evidence` field at all (from backends without structured
+   output) are kept as before; an empty or blank quote counts as ungrounded and
+   the node is dropped.
 4. **Repair.** If the output is invalid, one repair prompt lists the errors.
 5. **Fallback.** If it is still invalid, or the agent failed or timed out
    (`MEMORY_EXTRACT_TIMEOUT`, default 300 s), `MEMORY_EXTRACTOR_FALLBACK` is
@@ -147,12 +148,26 @@ secret leaks and duplicates. Measured with `hermes3:8b` on this version:
 | | recall | precision | F1 | unsupported nodes | forbidden | leaks |
 |---|---|---|---|---|---|---|
 | before (3 runs, mean) | 0.767 (0.600–0.900) | 0.495 | 0.598 | 31 of 61 | 2 | 0 |
-| after (3 runs, all equal) | **0.900** | **0.733** | **0.808** | 12 of 45 | 0 | 0 |
+| after (3 runs, all equal) | 0.900 | **0.733** | 0.808 | 12 of 45 | 0 | 0 |
 
-The "supported" check counts a node as unsupported when most of its words are
-not in your text, so an honest paraphrase can count against it, and the
-duplicate count also flags a task named after its project. Seven cases are a
-small sample.
+What this shows, and what it does not:
+
+- **Precision** is the only clear gain. A separate single run of the old version
+  scored precision 0.571, still well below 0.733.
+- **Recall** did not clearly change. The old version ranged from 0.600 to 0.900
+  across runs (a separate single run scored 0.900, equal to "after"), so the
+  difference is within run-to-run noise on this set. The new version also uses
+  temperature 0, which removes some of that spread, so the F1 change mostly
+  reflects precision.
+- **Small set, no held-out data.** There are only 7 cases, and the filters were
+  tuned while looking at these same 7 cases. There is no separate set to check
+  that the gain holds on new transcripts.
+- **Scorer and fix landed together.** The scorer, the cases and the filters came
+  in one commit, so the history cannot show that the scorer was fixed before the
+  baseline was measured. Both rows were scored with the same scorer.
+- The "supported" check counts a node as unsupported when most of its words are
+  not in your text, so an honest paraphrase can count against it, and the
+  duplicate count also flags a task named after its project.
 
 ## Recall
 
