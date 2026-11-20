@@ -1,0 +1,76 @@
+[
+  {
+    "id": "project",
+    "user": [
+      "I'm building Trail Tracker, a React Native app for logging hiking routes. The backend is written in Go and I want to ship the first version by March."
+    ],
+    "expected": [["trail tracker"], ["trail tracker", "go"], ["march"]],
+    "allowed": [["react native"], ["hiking"], ["go"]],
+    "forbidden": []
+  },
+  {
+    "id": "decision-preference",
+    "user": [
+      "Hi! Quick update.",
+      "We decided to use Postgres instead of MongoDB for Trail Tracker because the data is relational.",
+      "Also, for all my projects I prefer pytest over unittest. Thanks!"
+    ],
+    "expected": [["postgres"], ["pytest"]],
+    "allowed": [["trail tracker"], ["mongodb"]],
+    "forbidden": ["quick update", "thanks", "greet"]
+  },
+  {
+    "id": "applications",
+    "user": [
+      "I submitted my application to the University of Toronto MSc in Computer Science on November 10, and I expect a decision by February.",
+      "I also applied for a backend engineering internship at Northwind Labs last week."
+    ],
+    "expected": [["toronto"], ["northwind"]],
+    "allowed": [["computer science"], ["internship"], ["february"], ["msc"]],
+    "forbidden": []
+  },
+  {
+    "id": "chatter-only",
+    "user": [
+      "hi",
+      "Reply with just the word hello.",
+      "ok great, thanks!",
+      "what is a hash map?"
+    ],
+    "expected": [],
+    "allowed": [],
+    "forbidden": ["hello", "hash map", "thank", "greet", "reply with"]
+  },
+  {
+    "id": "assistant-guess",
+    "user": [
+      "What should I name my budgeting app?"
+    ],
+    "answer": "Maybe call it PennyWise and build it with Flutter; you could launch on the App Store in June.",
+    "expected": [],
+    "allowed": [["budgeting app"]],
+    "forbidden": ["pennywise", "flutter", "june", "what should i name"]
+  },
+  {
+    "id": "secret-and-tool-noise",
+    "user": [
+      "My deploy of Okapi Notes to Fly.io kept failing. Here is the log:\n```\nTraceback (most recent call last):\n  File \"/srv/app/main.py\", line 42, in <module>\n    connect(API_TOKEN)\nRuntimeError: bad interpreter\n```\nMy env had API_TOKEN={FAKE_SECRET} in it.",
+      "The fix was pinning Python 3.11 in the Dockerfile. Okapi Notes is my note-taking side project."
+    ],
+    "expected": [["okapi notes"], ["3.11"]],
+    "allowed": [["fly.io"], ["python"], ["docker"]],
+    "forbidden": ["traceback", "line 42", "main.py", "runtimeerror", "api_token"]
+  },
+  {
+    "id": "dedupe-existing",
+    "existing": [
+      {"type": "project", "name": "Trail Tracker", "summary": "A React Native app for logging hiking routes.", "confidence": 0.9}
+    ],
+    "user": [
+      "Trail Tracker is my React Native app for logging hiking routes. Next I am adding offline maps to it."
+    ],
+    "expected": [["offline maps"]],
+    "allowed": [["trail tracker"], ["react native"]],
+    "forbidden": []
+  }
+]

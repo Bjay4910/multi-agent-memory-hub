@@ -33,6 +33,7 @@ from ..agents import build_agent
 from ..agents.base import Agent, redact
 from ..fsutil import atomic_write_json
 from ..transcript import ROLE_AGENT, ROLE_FINAL, ROLE_USER, Message, load_session, utc_now_iso
+from . import quality
 from .paths import ensure_outside_repo, queue_dir
 from .redact import redact_secrets
 from .store import NODE_TYPES, RELATIONS, MemoryStore, Provenance
@@ -44,6 +45,7 @@ MAX_NODES = 40
 MAX_EDGES = 80
 NAME_MAX_CHARS = 120
 SUMMARY_MAX_CHARS = 600
+EVIDENCE_MAX_CHARS = 300
 DEFAULT_TIMEOUT_S = 300.0
 
 SYSTEM_PROMPT = f"""You extract long-term memory for a personal knowledge graph.
@@ -54,11 +56,20 @@ tasks, documents, and the people and organizations involved.
 Only record what the text actually states. The USER section is the user speaking about
 themselves: those are facts. The ANSWER section is advice from AI assistants: never record its
 suggestions, examples or guesses as facts about the user. Do not invent names, organizations,
-numbers or dates. Ignore general knowledge, definitions and small talk. Never include passwords,
-API keys or tokens.
+numbers or dates. Never include passwords, API keys or tokens.
+
+Do NOT record:
+- greetings, thanks, small talk or test instructions ("reply with just the word ...")
+- the user's question itself ("the user asked about X" is not a fact)
+- general knowledge or definitions, such as what a company, tool or language is
+- details the user did not say (no guessed descriptions, locations or purposes)
+- error messages, logs or command output
+
+Every node needs "evidence": a short exact quote (at most 15 words) copied from the USER
+section that states it. If you cannot quote the user saying it, leave the node out.
 
 Output ONLY one JSON object, no prose, no code fences, exactly in this shape:
-{{"nodes": [{{"type": "...", "name": "...", "summary": "...", "confidence": 0.0}}],
+{{"nodes": [{{"type": "...", "name": "...", "summary": "...", "confidence": 0.0, "evidence": "..."}}],
   "edges": [{{"src": "<node name>", "relation": "...", "dst": "<node name>"}}]}}
 
 Rules:
@@ -66,12 +77,21 @@ Rules:
 - relation is one of: {", ".join(RELATIONS)}
 - name: a short natural name in Title Case with spaces (e.g. "Garden Planner", never
   "garden_planner"), at most {NAME_MAX_CHARS} characters; the user is the person node "Me"
-- summary: one or two factual sentences, at most {SUMMARY_MAX_CHARS} characters
+- summary: one or two factual sentences in the user's own terms, at most {SUMMARY_MAX_CHARS} characters
 - confidence: a number from 0 to 1 (how sure the text makes you)
 - an application node is named "<organization> <program or role> application" and links to the
   organization with applied_to; only create organizations the text names
 - edges may only use node names from your "nodes" list
-- if there is nothing worth remembering, output {{"nodes": [], "edges": []}}"""
+- if there is nothing worth remembering, output {{"nodes": [], "edges": []}}
+
+Example. USER: "hi! I'm building Example Planner in Go and decided to use SQLite. what is a hash map?"
+{{"nodes": [{{"type": "project", "name": "Example Planner", "summary": "The user's project, written in Go.",
+  "confidence": 0.9, "evidence": "I'm building Example Planner in Go"}},
+ {{"type": "decision", "name": "Use SQLite For Example Planner", "summary": "Decided to use SQLite.",
+  "confidence": 0.9, "evidence": "decided to use SQLite"}}],
+ "edges": [{{"src": "Me", "relation": "works_on", "dst": "Example Planner"}},
+  {{"src": "Use SQLite For Example Planner", "relation": "part_of", "dst": "Example Planner"}}]}}
+(no node for "hi" or for the hash map question)"""
 
 # JSON Schema for backends with structured outputs (Ollama). Validation below
 # still checks every output, whichever backend produced it.
@@ -88,8 +108,9 @@ EXTRACTION_SCHEMA = {
                     "name": {"type": "string", "minLength": 1, "maxLength": NAME_MAX_CHARS},
                     "summary": {"type": "string", "maxLength": SUMMARY_MAX_CHARS},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "evidence": {"type": "string", "maxLength": EVIDENCE_MAX_CHARS},
                 },
-                "required": ["type", "name", "summary", "confidence"],
+                "required": ["type", "name", "summary", "confidence", "evidence"],
                 "additionalProperties": False,
             },
         },
@@ -180,6 +201,8 @@ def validate_extraction(obj: object) -> tuple[dict | None, list[str]]:
             errors.append(f"{where}.summary is too long")
         if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
             errors.append(f"{where}.confidence must be a number between 0 and 1")
+        if "evidence" in n and (not isinstance(n["evidence"], str) or len(n["evidence"]) > EVIDENCE_MAX_CHARS * 2):
+            errors.append(f"{where}.evidence must be a short string")
         nodes.append(n)
 
     edges = []
@@ -205,6 +228,7 @@ def validate_extraction(obj: object) -> tuple[dict | None, list[str]]:
                 "name": redact_secrets(n["name"].strip()),
                 "summary": redact_secrets(n["summary"].strip())[:SUMMARY_MAX_CHARS],
                 "confidence": float(n["confidence"]),
+                **({"evidence": n["evidence"].strip()[:EVIDENCE_MAX_CHARS]} if "evidence" in n else {}),
             }
             for n in nodes
         ],
@@ -375,7 +399,9 @@ async def extract_session(
     source = session_source(messages)
     result = ExtractionResult(session_id, "queued")
     try:
+        messages = quality.prefilter_messages(messages)  # chatter and tool noise never reach the model
         text = source_text(messages)
+        user_text = source_text(messages, scope="user")  # facts must be grounded in the user's own words
         if not text.strip():
             result.status = "empty"
             _dequeue(session_id)
@@ -397,7 +423,9 @@ async def extract_session(
                     result.errors.extend(f"{name}: {e}" if not e.startswith(f"{name}:") else e for e in errors)
                     continue
                 with MemoryStore(store_path) as store:
+                    data, dropped = quality.clean_extraction(data, user_text, store)
                     result.counts = store.apply_extraction(data, Provenance(session_id, name, source))
+                    result.counts["dropped"] = sum(dropped.values())
                 result.status, result.agent = "stored", name
                 _dequeue(session_id)
                 return result

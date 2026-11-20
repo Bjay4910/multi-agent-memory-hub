@@ -119,10 +119,17 @@ def merge_summaries(old: str, new: str) -> str:
     """Append the sentences of ``new`` that ``old`` does not already contain."""
     merged = old.strip()
     seen = _norm_text(merged)
+    old_words = [set(_norm_text(s).split()) for s in _sentences(merged)]
     for sentence in _sentences(new):
-        if _norm_text(sentence) and _norm_text(sentence) not in seen:
-            merged = f"{merged} {sentence}".strip()
-            seen = _norm_text(merged)
+        words = set(_norm_text(sentence).split())
+        if not words or _norm_text(sentence) in seen:
+            continue
+        # A near-copy of a sentence already there (most words shared) adds nothing.
+        if any(len(words & w) / len(words | w) >= 0.8 for w in old_words if w):
+            continue
+        merged = f"{merged} {sentence}".strip()
+        seen = _norm_text(merged)
+        old_words.append(words)
     return merged[:SUMMARY_MAX_CHARS]
 
 

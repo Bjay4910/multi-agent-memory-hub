@@ -70,6 +70,7 @@ class OpenAICompatAgent(Agent):
         if self.supports_json_mode and json_schema:
             # Structured outputs: decoding is constrained to the schema (enums included).
             extra["response_format"] = {"type": "json_schema", "json_schema": {"name": "output", "schema": json_schema, "strict": True}}
+            extra["temperature"] = 0  # structured extraction: the same input gives the same output
         elif self.supports_json_mode and json_output:
             extra["response_format"] = {"type": "json_object"}
         try:
