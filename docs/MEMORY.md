@@ -96,7 +96,16 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    Before that, a pre-filter (`room/memory/quality.py`) drops messages that are
    only chatter (greetings, thanks, "reply with just the word ...") or an
    impersonal general question ("what is a hash map?"), and removes code blocks,
-   tracebacks, shell prompts and symbol-heavy lines. If nothing is left, the
+   tracebacks, shell prompts and symbol-heavy lines. It keeps facts that only
+   look like noise: a leading `> ` is treated as a quote mark and stripped; a
+   bare `Warning:` or `Error:` line is kept when it speaks in the first person
+   ("Warning: I am moving Trail Tracker to Rust"), while `RuntimeError: ...` or
+   `Error: ENOENT ...` is still dropped; indented lines under a stack trace are
+   dropped, but under other tool output (`$ npm test`) only when they are not in
+   the first person. An impersonal question is kept if it names a multi-word
+   Title Case name ("Is Postgres right for Trail Tracker?"), since that is
+   probably your own project; "What is Python?" is still dropped. A known gap:
+   "What is New York?" would also reach the model. If nothing is left, the
    model is not called and the result is "nothing to extract".
 2. **Extractor.** `MEMORY_EXTRACTOR` is `hermes` (default), `claude` or `gemini`.
    The prompt asks for strict JSON in this shape:
@@ -112,7 +121,12 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    no extra keys.
    Then a post-filter drops a node when its evidence quote is not in your own
    words (exact, or at least 80% of its words), when it records chatter or your
-   question ("the user asked about ..."), when its confidence is below 0.5, or
+   question ("the user asked about ...", "the user is deciding ..."), when its
+   evidence appears only inside one of your questions and it is not a project or
+   application (an open question is not a decision or task: from "What should I
+   name my budgeting app?" the budgeting app is kept, "Name Budgeting App" is
+   not; this also drops requests such as "Review PR for Ledgerly"), when its
+   confidence is below 0.5, or
    when any secret pattern matches its name, summary or evidence. The same name
    twice in one output is stored once, and a fact the graph already holds under
    another name (same type, every sentence sharing at least 80% of its words) is
@@ -167,7 +181,50 @@ What this shows, and what it does not:
   baseline was measured. Both rows were scored with the same scorer.
 - The "supported" check counts a node as unsupported when most of its words are
   not in your text, so an honest paraphrase can count against it, and the
-  duplicate count also flags a task named after its project.
+  duplicate count also flags a task named after its project. It also keeps a
+  word's trailing period, so a word at the end of one of your sentences
+  ("... Trail Tracker.") does not count as support. This quirk is left as is so
+  that scores stay comparable across rounds.
+
+#### Round 2: held-out set
+
+`python -m room.memory.extraction_eval --runs 3 --cases tests/eval/heldout_cases.json`
+scores a second set of 13 made-up, redacted transcripts, with totals per group:
+
+- `ab` (5): one case for each issue fixed in round 2 (a `> ` quote, a
+  `Warning:` line in prose, a question naming a project, an indented line after
+  `$ npm test`, a restated question with an assistant's guess);
+- `control` (3): two with no facts at all and one with a fake secret;
+- `independent` (5): unrelated to those issues (a debugging chat, a planning
+  chat, personal preferences, a code review, a new job).
+
+**Held-out = written before the fixes, by the same author, so it is a sanity
+check, not an independent benchmark.** The cases were written and scored on the
+old code before any filter changed; the filters were not tuned on them
+afterwards. One held-out case was inspected after the fix, only to explain a
+drop (below). All rows: `hermes3:8b`, temperature 0, 3 runs, all 3 equal.
+
+| set | before: recall / precision / F1 | after: recall / precision / F1 |
+|---|---|---|
+| original 7 cases | 0.900 / 0.733 / 0.808 | 0.900 / **0.786** / **0.839** |
+| held-out, all 13 | 0.647 / 0.650 / 0.649 | **0.882** / 0.652 / **0.750** |
+| held-out `ab` (5) | 0.000 / 1.000 / 0.000 (1 node) | **1.000** / 0.800 / **0.889** |
+| held-out `control` (3) | 1.000 / 0.333 / 0.500 | 1.000 / 0.333 / 0.500 |
+| held-out `independent` (5) | 0.833 / 0.688 / 0.753 | 0.833 / 0.667 / 0.741 |
+
+Secret leaks were 0 in every run, before and after. What this shows:
+
+- The round-2 issues are fixed on their own cases (`ab` recall 0 to 1), and the
+  original set did not get worse; its precision rose because a restated
+  question is no longer stored.
+- The `independent` group did not improve and is slightly lower: the only
+  difference is that a task "Review PR for Ledgerly", read out of the question
+  "Can you review this PR for Ledgerly ...?", is now dropped. The scorer had
+  counted it as useful because it names Ledgerly; the new rule treats it as a
+  request, not a fact. Recall there is unchanged.
+- The controls did not change: 2 of their 3 stored nodes are still junk.
+- These sets are small (7 and 13 cases); one node moves a group's precision by
+  several points.
 
 ## Recall
 

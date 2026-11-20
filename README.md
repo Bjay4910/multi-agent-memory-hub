@@ -520,9 +520,15 @@ Keyword search has no notion of meaning; see the limits below.
     secrets are dropped. On a fixed set of 7 test transcripts this raised
     precision from 0.495 to 0.733. Recall did not clearly change: the old
     version already scored up to 0.900 on some runs, so the difference is
-    within run-to-run noise (see
-    [docs/MEMORY.md](docs/MEMORY.md#measuring-extraction)). It still keeps some
-    unsupported details, and 7 cases with no held-out set are a small sample.
+    within run-to-run noise. A second round stopped the pre-filter from
+    dropping real facts (a `> ` quote, a "Warning: I ..." line, a question
+    naming your project, a line after a shell prompt) and stops storing your
+    question restated as a task. Original 7 cases: F1 0.808 to 0.839 (recall
+    0.900 both times). A 13-case held-out set, written before the fixes by the
+    same author (a sanity check, not an independent benchmark): F1 0.649 to
+    0.750; its 5 cases unrelated to these issues went from 0.753 to 0.741. See
+    [docs/MEMORY.md](docs/MEMORY.md#measuring-extraction). It still keeps some
+    unsupported details, and sets this small are a small sample.
     Review notes with `room memory search` and `room memory show`, and fix
     them with `room memory forget`. `MEMORY_EXTRACTOR=claude` gives better
     extraction but sends the redacted text to that provider.
