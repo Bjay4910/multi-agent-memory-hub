@@ -353,3 +353,148 @@ def test_property_holds_for_the_b_shapes():
 def test_a_token_inside_the_filler_of_a_label_match_is_still_masked(text, token):
     assert token not in quality.mask_credentials(text)
     assert token in quality.withheld_values(text)
+
+
+# -- C. fuzz over the A and B shapes: invalid output in every third combination, the whole home scanned ---------------
+
+import itertools  # noqa: E402
+import random  # noqa: E402
+import shutil  # noqa: E402
+
+MSG_SHAPES = {
+    "quote": "> {P}\n> Trail Tracker deploys nightly.",
+    "warning": "Warning: {P} for Trail Tracker",
+    "question": "Is {P} safe for Trail Tracker?",
+    "after-prompt": "$ {P}\nTrail Tracker reads it at startup.",
+    "indented-output": "$ cat notes.txt\n  {P}\nTrail Tracker reads that file.",
+    "code-block": "My config:\n```\n{P}\n```\nTrail Tracker deploys nightly.",
+    "tilde-block": "My config:\n~~~\n{P}\n~~~\nTrail Tracker deploys nightly.",
+    "restated-question": "What should I do now that {P} for my Trail Tracker app?",
+    "we-line": "We noted that {P} in Trail Tracker.\nTrail Tracker deploys nightly.",
+}
+# Label families: {L} label, {LK} label as a key (spaces as _), {V} value. Value kinds: "any" (5 shapes incl.
+# spaces), "token" (no spaces), "dq" / "sq" / "bq" (punctuation that used to end a value, inside quotes).
+LABEL_FAMILIES = {
+    "json-quoted": ('{{"{LK}": "{V}", "env": "prod"}}', "dq"),
+    "env-quoted": ('{LK}="{V}"', "dq"),
+    "single-quoted": ("{L}: '{V}'", "sq"),
+    "backtick": ("{L} is `{V}`", "bq"),
+    "paren": ("{L} is ({V}) in prod", "any"),
+    "angle": ("{L}: <{V}>", "any"),
+    "eq-prefix": ("{L}: =={V}", "token"),
+    "yaml-blank": ("{L}:\n\n  {V}", "any"),
+    "yaml-block": ("{L}: |\n  {V}", "any"),
+    "yaml-folded": ("{L}: >-\n  {V}", "any"),
+    "query-bracket": ("https://api.example.com/s?{LK}={V}&filter[a]=1", "token"),
+    "markdown-bold": ("**{L}**: {V}", "any"),
+    "markdown-code": ("`{LK}`: {V}", "any"),
+    "quoted-label": ('"{L}" is {V}.', "any"),
+    "with": ("Connect with {L} {V}9 to staging.", "token9"),
+    "using": ("Log in using {L} {V}9 today.", "token9"),
+}
+FREE_FAMILIES = {
+    "curl-u": ("curl -u deploy:{V} https://api.example.com/v1", "token"),
+    "curl-user": ("curl --user ops:{V} https://api.example.com/v1", "token"),
+    "curl-b": ("curl -b 'sid={V}' https://api.example.com/v1", "token"),
+    "curl-cookie": ('curl --cookie "session={V}" https://api.example.com/v1', "token"),
+    "redis-cli": ("redis-cli -a {V} -h cache.internal", "token"),
+    "mysql-p": ("mysql -u admin -p{V} shop", "token"),
+    "password-flag": ("mysql -u admin --password={V} shop", "token"),
+    "sshpass": ("sshpass -p '{V}' ssh ops@db.internal", "token"),
+    "login": ("login: admin/{V}", "token"),
+    "sendgrid": ("mail via {S} now", "token"),
+    "glpat": ("CI uses {S} for pushes", "token"),
+    "whsec": ("Webhook signing uses {S} in prod", "token"),
+    "azure-sas": ("https://acct.blob.core.windows.net/c?sv=2021&sig={S}&se=2026", "token"),
+}
+# For token shapes the secret is the whole token as written: a fragment glued inside a random token ("marmalade"
+# in "glpat-marmaladeAbCd...") is not something a model could read out of a masked prompt.
+TOKEN_SECRETS = {
+    "sendgrid": "SG.{W}AbCdEfGh12.{W}0123456789abcdefghij",
+    "glpat": "glpat-{W}AbCdEfGhIjKlMn12",
+    "whsec": "whsec_{W}MfKQ9r8GKYqrTwjU",
+    "azure-sas": "{W}Q1w2E3r4%2B%3D",
+}
+_WORDS = ["marmalade", "driftwood", "copperleaf", "saltmarsh", "bluegill", "ironbark", "foxglove"]
+VALUE_SHAPES = ["plain", "word-digits", "hyphenated", "spaces", "long"]
+
+
+def _fuzz_value(rng, kind, n):
+    w, x, d = rng.choice(_WORDS), rng.choice(_WORDS), rng.randint(10, 99)
+    if kind == "dq":
+        return [f"{w},{x}{d}", f"{w};{x}{d}", f"{w}){x}{d}", f'{w}\\"{x}{d}', f"{w}]{x}}}{d}"][n % 5]
+    if kind == "sq":
+        return [f"{w},{x}{d}", f"{w};{x}{d}", f"{w}){x}{d}", f"{w}\\'{x}{d}", f"{w} {x} {d}x"][n % 5]
+    if kind == "bq":
+        return [f"{w},{x}{d}", f"{w};{x}{d}", f"{w}){x}{d}", f"{w} {x} {d}x", f"{w}]{x}{d}"][n % 5]
+    shape = VALUE_SHAPES[n % 5]
+    if kind in ("token", "token9") and shape == "spaces":
+        shape = "word-digits"
+    return {
+        "plain": w, "word-digits": f"{w}{rng.randint(100, 9999)}", "hyphenated": f"{w}-{x}-{d}",
+        "spaces": f"{w} {x} {d}x",
+        "long": "".join(rng.choice("abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(14)),
+    }[shape]
+
+
+def _secret_part(value):
+    """The distinctive part the scan looks for (a backslash escape is not part of it)."""
+    return value.replace("\\\\", "").replace('\\"', '"').replace("\\'", "'")
+
+
+def fuzz10_cases():
+    """(index, key, text, secret, bad_output). Fixed seed; every third combination gets invalid model output."""
+    rng = random.Random(10)
+    cases = []
+
+    def add(key, phrase, secret, shape):
+        i = len(cases)
+        cases.append((i, f"{key}|{shape}", MSG_SHAPES[shape].replace("{P}", phrase), secret, i % 3 == 0))
+
+    for n, (label, family, shape) in enumerate(itertools.product(quality.SECRET_LABELS, LABEL_FAMILIES, MSG_SHAPES)):
+        template, kind = LABEL_FAMILIES[family]
+        value = _fuzz_value(rng, kind, n)
+        phrase = template.replace("{LK}", label.replace(" ", "_")).replace("{L}", label).replace("{V}", value)
+        secret = value + "9" if kind == "token9" else value
+        add(f"{family}|{label}", phrase, _secret_part(secret), shape)
+    for n, (family, vshape, shape) in enumerate(itertools.product(FREE_FAMILIES, range(5), MSG_SHAPES)):
+        template, kind = FREE_FAMILIES[family]
+        value = _fuzz_value(rng, kind, vshape)
+        if family in TOKEN_SECRETS:
+            value = TOKEN_SECRETS[family].replace("{W}", re.sub(r"[^A-Za-z0-9]", "", value))
+            add(f"{family}|v{vshape}", template.replace("{S}", value), value, shape)
+        else:
+            add(f"{family}|v{vshape}", template.replace("{V}", value), value, shape)
+    return cases
+
+
+def run_fuzz10(root, monkeypatch, cases=None):
+    cases = cases if cases is not None else fuzz10_cases()
+    leaks, queued = [], 0
+    for i, key, text, secret, bad in cases:
+        case_dir = root / f"c{i}"
+        found, was_queued = run_one(text, secret, case_dir, monkeypatch, bad_output=bad)
+        queued += was_queued
+        if found:
+            leaks.append((key, found))
+        shutil.rmtree(case_dir, ignore_errors=True)
+    return len(cases), leaks, queued
+
+
+def test_fuzz10_matrix_size():
+    expected = (len(quality.SECRET_LABELS) * len(LABEL_FAMILIES) * len(MSG_SHAPES)
+                + len(FREE_FAMILIES) * 5 * len(MSG_SHAPES))
+    assert len(fuzz10_cases()) == expected
+
+
+def test_fuzz10_matrix_never_leaks_and_really_writes_the_queue(tmp_path, monkeypatch):
+    total, leaks, queued = run_fuzz10(tmp_path, monkeypatch)
+    print(f"fuzz10: {total} combinations, {len(leaks)} leaks, {queued} wrote memory_queue")
+    assert queued > 0, "no combination wrote memory_queue: the queue path is not exercised"
+    assert not leaks, f"{len(leaks)} leaks, first: {leaks[:20]}"
+
+
+def test_property_holds_on_the_fuzz10_matrix():
+    corpus = [(text, secret) for _, _, text, secret, _ in fuzz10_cases()[::4]]
+    misses = check_property(corpus)
+    assert not misses, misses[:20]
