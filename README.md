@@ -598,6 +598,40 @@ Keyword search has no notion of meaning; see the limits below.
 - Timings in real runs (Apple Silicon, `hermes3:8b`): **1–5 s** per extraction
   from your own words, about **10–13 s** with `MEMORY_EXTRACT_FROM=session`.
 
+### Dashboard (local)
+
+A read-only web dashboard for memory, served only on your machine. It has two
+parts: `room dashboard-api` (a small JSON API on `127.0.0.1:8766`, read-only,
+GET only) and the page in `ui/` (Vite + React + three.js, everything bundled;
+it makes no requests to other hosts). Only the Memory Graph view is built so
+far.
+
+With the made-up demo data (nothing from your real memory is read):
+
+```bash
+room dashboard-api --demo
+# in a second terminal:
+cd ui && npm install && npm run dev
+# open http://127.0.0.1:5173/
+```
+
+With your local memory (`~/.agent-room/memory.db`, or `$AGENT_ROOM_HOME`):
+
+```bash
+room dashboard-api
+# in a second terminal:
+cd ui && npm run dev
+```
+
+The dev server listens on `127.0.0.1:5173` and forwards `/api` to
+`127.0.0.1:8766`. `room dashboard-api` refuses to start if something already
+answers on its port on `127.0.0.1` (pick another with `--port`, and change
+the proxy target in `ui/vite.config.ts` to match); it only checks
+`127.0.0.1`, so other processes may still listen on the same port on other
+interfaces. `cd ui && npm test` runs the UI tests, `npm run build` builds
+`ui/dist/`, and `npm run check:dist` lists every external URL string in the
+build (all are known library constants, never requested).
+
 ### Presence
 
 See who is working right now (run it from a second terminal during `room ask`):

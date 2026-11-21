@@ -150,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     gr.add_argument("--out", type=Path, help="output path without extension (default: ~/.agent-room/exports/graph)")
 
     da = sub.add_parser("dashboard-api", help="read-only JSON API over memory for the dashboard (127.0.0.1 only)")
-    da.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")
+    da.add_argument("--port", type=int, default=8766, help="port on 127.0.0.1 (default: 8766)")
     da.add_argument("--demo", action="store_true", help="serve the made-up demo dataset from a temp home instead")
     return parser
 
@@ -613,7 +613,11 @@ def cmd_capture(args: argparse.Namespace) -> int:
 def cmd_dashboard_api(args: argparse.Namespace) -> int:
     from .web import api
 
-    return api.serve(args.port, args.demo)
+    try:
+        return api.serve(args.port, args.demo)
+    except api.PortInUse as exc:
+        print(f"room dashboard-api: {exc}", file=sys.stderr)
+        return 1
 
 
 def cmd_mcp() -> int:

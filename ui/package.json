@@ -1,0 +1,29 @@
+{
+  "name": "agent-room-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local, read-only dashboard for the agent room memory (served by `room dashboard-api`).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "check:dist": "node scripts/check-dist.mjs",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "3d-force-graph": "1.80.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.187.0",
+    "jsdom": "29.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
+  }
+}

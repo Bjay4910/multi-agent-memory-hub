@@ -26,3 +26,7 @@ usage/
 # memory vault exports (personal data)
 vault/
 .room-vault.json
+
+# dashboard UI build output and packages
+node_modules/
+ui/dist/

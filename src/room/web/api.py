@@ -18,9 +18,11 @@ read from the real ``~/.agent-room``.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
+import socket
 import stat
 import sys
 import tempfile
@@ -33,7 +35,7 @@ from ..memory.readonly import MemoryUnavailable, ReadOnlyMemory
 from ..presence import read_presence
 
 BIND_HOST = "127.0.0.1"
-DEFAULT_PORT = 8765
+DEFAULT_PORT = 8766
 DEFAULT_GRAPH_LIMIT = 500
 MAX_GRAPH_LIMIT = 2000
 SEARCH_LIMIT = 25
@@ -47,6 +49,25 @@ _DIGITS = re.compile(r"^[0-9]{1,19}$")
 
 class BadRequest(ValueError):
     """Invalid input; the message is shown to the client."""
+
+
+class PortInUse(OSError):
+    """The port already answers on 127.0.0.1; the message is meant for people."""
+
+    def __init__(self, port: int) -> None:
+        super().__init__(
+            f"port {port} is already in use on {BIND_HOST}:{port}; another process answers there, so requests "
+            f"could reach it instead of this API. Stop that process or pick another port with --port. (Other "
+            f"processes may still listen on this port on other interfaces; this API only checks {BIND_HOST}.)")
+
+
+def _answers(port: int) -> bool:
+    """True if something accepts connections on 127.0.0.1:``port`` (including an IPv6 dual-stack wildcard)."""
+    try:
+        with socket.create_connection((BIND_HOST, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 class NotFound(LookupError):
@@ -283,7 +304,14 @@ def make_server(host: str, port: int, *, db_path: Path, presence_dir: Path, mode
         raise ValueError(f"the dashboard API binds {BIND_HOST} only, not {host!r}")
     if mode not in ("local", "demo"):
         raise ValueError(f"unknown mode {mode!r}")
-    server = ThreadingHTTPServer((BIND_HOST, port), Handler)
+    if port and _answers(port):
+        raise PortInUse(port)
+    try:
+        server = ThreadingHTTPServer((BIND_HOST, port), Handler)
+    except OSError as exc:
+        if exc.errno == errno.EADDRINUSE:
+            raise PortInUse(port) from None
+        raise
     server.daemon_threads = True
     config = Config(Path(db_path), Path(presence_dir), mode, server.server_address[1])
     server.RequestHandlerClass = type("BoundHandler", (Handler,), {"config": config})
@@ -303,6 +331,8 @@ def serve(port: int = DEFAULT_PORT, demo: bool = False, host: str = BIND_HOST) -
     """Run until interrupted. Demo mode serves a temp copy of the demo dataset and never reads the real home."""
     if host != BIND_HOST:
         raise ValueError(f"the dashboard API binds {BIND_HOST} only, not {host!r}")
+    if port and _answers(port):  # before a demo home is created
+        raise PortInUse(port)
     if demo:
         home = demo_home()
         os.environ["AGENT_ROOM_HOME"] = str(home)  # anything that asks for the home gets the temp one

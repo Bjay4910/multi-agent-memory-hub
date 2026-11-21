@@ -201,7 +201,7 @@ def test_cli_has_the_dashboard_api_subcommand_and_keeps_the_others():
     args = parser.parse_args(["dashboard-api", "--port", "9999", "--demo"])
     assert (args.command, args.port, args.demo) == ("dashboard-api", 9999, True)
     args = parser.parse_args(["dashboard-api"])
-    assert (args.port, args.demo) == (8765, False)
+    assert (args.port, args.demo) == (8766, False)
     assert parser.parse_args(["memory", "search", "x"]).command == "memory"
     assert parser.parse_args(["mcp"]).command == "mcp"
 
