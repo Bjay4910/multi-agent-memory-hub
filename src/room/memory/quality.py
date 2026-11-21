@@ -39,12 +39,13 @@ describes the conversation keeps its links but no summary.
 
 from __future__ import annotations
 
+import difflib
 import re
 import unicodedata
 from typing import TYPE_CHECKING
 
 from ..transcript import ROLE_USER, Message
-from .redact import find_secrets
+from .redact import REPLACEMENT, find_secrets, redact_secrets
 from .store import STOPWORDS, normalize_name
 
 if TYPE_CHECKING:
@@ -115,8 +116,8 @@ _LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-
 _FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
 # The connector: "=", ":", "->", "=>", an em or en dash, "is", "was", "are", "is now", "set to", "is set to",
 # "equals", "is equal to", "will be", or 是 / は after a Chinese or Japanese label. A key in quotes may close
-# before ":" ('"password": "x"'), and the value may sit on the next line ("password:\nx").
-_CONNECT = (r"(?:[\"']?[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:\n[ \t]*)?"
+# before ":" ('"password": "x"'), and the value may sit up to 4 lines down ("password:\n\n  x", YAML).
+_CONNECT = (r"(?:[\"']?[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:\n[ \t]*){0,4}"
             r"|[ \t]*[是は][ \t]*"
             r"|[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|will[ \t]+be|"
             r"(?:is|was|are)(?:[ \t]+now)?)"
@@ -125,9 +126,18 @@ _CONNECT = (r"(?:[\"']?[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:\n[ \t]*)?"
 # ends at a quote, a closing bracket, or "&" before another URL parameter ("?api_key=x&v=1"); an opening
 # quote before it is not part of it. There is no status-word exception: "the token is valid for one hour"
 # is masked too (security over recall), and this can over-mask the rest of a clause, which is accepted.
-_VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[\w.-]+=)|[.!?](?:\s|$)|\n|$))"""
-# A value never starts with "=", so "my token QWxh==" is not read as filler "QWxh", connector "=", value "=".
-_CLAUSE = r"""["']?(?P<{name}>[^\s,;"'\)\]\}\{\[\(<=][^,;"'\)\]\}\n]*?)""" + _VALUE_END
+_VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[^\s&=]+=)|[.!?](?:\s|$)|\n|$))"""
+# A quoted value runs to its matching closing quote, backslash escapes included, so , ; ) and \" inside it
+# do not end it ('{"password": "alpha,beta99"}'); only the inside is masked. A value wrapped in ( ) or < >,
+# or written after "=" signs ("==garnet55"), is masked with its wrapper. Otherwise the value is unquoted: it
+# never starts with "=", so "my token QWxh==" is not read as filler "QWxh", connector "=", value "=".
+_CLAUSE = ("(?:"
+           r'"(?P<{name}q1>(?:\\.|[^"\\\n])+)"'
+           r"|'(?P<{name}q2>(?:\\.|[^'\\\n])+)'"
+           r"|`(?P<{name}q3>(?:\\.|[^`\\\n])+)`"
+           r"|(?P<{name}w1>\([^()\n]+\))|(?P<{name}w2><[^<>\n]+>)"
+           r"""|(?P<{name}w3>=+[^\s,;"'\)\]\}=][^\s,;"'\)\]\}]*)"""
+           r"""|["'`]?(?P<{name}>[^\s,;"'`\)\]\}\{\[\(<=][^,;"'`\)\]\}\n]*?)""" + _VALUE_END + ")")
 _TOKEN_VALUE = r"[A-Za-z0-9._~+/=-]*[A-Za-z0-9_~+/=-]"  # a header token; a trailing "." ends the sentence
 _B64_END = r"(?![A-Za-z0-9+/=_-])"
 _CREDENTIAL = re.compile(
@@ -135,6 +145,7 @@ _CREDENTIAL = re.compile(
     rf"|{_LABEL}{_FILLER}[ \t]+(?P<h>[A-Za-z0-9+/]{{4,}}={{1,2}}){_B64_END}"  # my token QWxhZGRpbjpvcGVu==
     rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
     r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")"
+    r"|\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})"                # SendGrid: the whole token
     rf"|\bbasic\s+(?P<f>(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}={{0,2}}){_B64_END}"  # Basic dXNlcjpw...
     r"|\b[a-z][a-z0-9+.-]*://(?P<u>[^\s/@:\"'<>]*:[^\s/@\"'<>]+)(?=@)"  # postgres://admin:x@host (user:pass)
     rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}",  # a 32+ char token, checked below
@@ -233,6 +244,24 @@ def scrub_withheld(text: str, withheld: "set[str] | frozenset[str]") -> str:
     return text
 
 
+def redact_masked_substrings(text: str) -> set[str]:
+    """The substrings of ``text`` that redact_secrets replaces, found by comparing the text before and after
+    it (redact.py is not changed): its output, split at each [REDACTED], gives the kept pieces in order, and
+    what lies between them in ``text`` was masked."""
+    text = text or ""
+    after = redact_secrets(text)
+    if after == text:
+        return set()
+    pieces = after.split(REPLACEMENT)
+    m = re.fullmatch("(.+?)".join(re.escape(p) for p in pieces), text, re.S)
+    if m:
+        found = set(m.groups())
+    else:  # a piece repeats in a way the split cannot place; fall back to a character diff
+        ops = difflib.SequenceMatcher(None, text, after, autojunk=False).get_opcodes()
+        found = {text[i1:i2] for tag, i1, i2, _, _ in ops if tag in ("replace", "delete")}
+    return {v for v in found if v and v != REPLACEMENT}
+
+
 def premask_text(text: str) -> str:
     """The text the mask runs on in clean_message: code blocks cut, "> " quote marks removed."""
     return _QUOTE_MARK.sub("", _FENCE.sub("\n", text or ""))
@@ -240,8 +269,9 @@ def premask_text(text: str) -> str:
 
 def withheld_values(text: str) -> set[str]:
     """Every credential value the mask takes out of ``text`` (found on the raw text and on the text
-    clean_message masks, with the same rules), plus each word of them that the model never sees, so a
-    node that repeats only part of an over-masked clause is dropped too."""
+    clean_message masks, with the same rules), every substring redact_secrets masks in the extraction prompt,
+    plus each word of them that the model never sees, so a node that repeats only part of an over-masked
+    clause is dropped too."""
     prepared = premask_text(text)
     values = set()
     for source in (text or "", prepared):
@@ -249,9 +279,18 @@ def withheld_values(text: str) -> set[str]:
             values |= {source[s:e], norm}
             if kind == "u":  # the password part of user:pass on its own
                 values.add(norm.split(":", 1)[1])
-    visible = {w.strip(".,;:!?()'\"").lower() for w in mask_credentials(prepared).split()}
-    words = {w.strip(".,;:!?()'\"") for v in values for w in v.split()}
-    return values | {w for w in words if len(w) >= 3 and w.lower() not in visible}
+            if kind.startswith("a") and kind[1:2] == "q":  # a quoted value also as written unescaped
+                values.add(re.sub(r"\\(.)", r"\1", norm))
+    # What redact_secrets masks in the extraction prompt is withheld too. The prompt is
+    # redact_secrets(clean_message(text)); the masked text before clean_message drops lines is checked too.
+    for source in (clean_message(text), mask_credentials(prepared)):
+        values |= redact_masked_substrings(source)
+    visible = {w.strip(".,;:!?()<>='\"`").lower() for w in mask_credentials(prepared).split()}
+    words = {w.strip(strip) for v in values for w in v.split() for strip in (".,;:!?()'\"", ".,;:!?()<>='\"`")}
+    # and each piece of 5+ characters between punctuation ("post77" in pre\"post77, the id in SG.id.secret)
+    pieces = {p for v in values for p in re.split(r"[\s\"'\\,;:()<>=/@&.`]+", v) if len(p) >= 5}
+    return (values | {w for w in words if len(w) >= 3 and w.lower() not in visible}
+            | {p for p in pieces if p.lower() not in visible})
 
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
