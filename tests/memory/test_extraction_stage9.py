@@ -167,3 +167,170 @@ def test_property_every_masked_value_is_withheld_exactly():
                 misses.append((text, span))
     assert len(corpus) > 300
     assert not misses, misses[:20]
+
+
+# -- B. normalize before matching ---------------------------------------------------------------------------------
+
+NORMALIZED = {
+    "nbsp": ("Trail Tracker password\u00a0is\u00a0garnet44", "garnet44"),
+    "fullwidth-colon": ("password\uff1a violet66", "violet66"),
+    "fullwidth-equals": ("API_KEY\uff1d topaz99", "topaz99"),
+    "zero-width": ("PASS\u200bWORD: indigo44", "indigo44"),
+    "cyrillic-a": ("p\u0430ssword is orchid55", "orchid55"),
+    "em-dash": ("password \u2014 quartz55", "quartz55"),
+    "arrow": ("My password for Trail Tracker -> marigold55.", "marigold55"),
+    "will-be": ("My password for Trail Tracker will be juniper66.", "juniper66"),
+}
+
+
+@pytest.mark.parametrize("case", list(NORMALIZED))
+def test_normalized_shapes_are_masked_and_withheld(case):
+    text, value = NORMALIZED[case]
+    assert value not in quality.clean_message(text)
+    assert value in quality.withheld_values(text)
+
+
+@pytest.mark.parametrize("case", list(NORMALIZED))
+def test_normalized_shapes_never_leak(case, tmp_path, monkeypatch):
+    text, value = NORMALIZED[case]
+    assert run_one(text, value, tmp_path, monkeypatch)[0] == []
+
+
+def test_normalizing_never_changes_the_text_outside_the_value():
+    text = "PASS\u200bWORD: indigo44, for Trail\u00a0Tracker"
+    assert quality.mask_credentials(text) == "PASS\u200bWORD: [REDACTED], for Trail\u00a0Tracker"
+
+
+# -- C. new shapes ------------------------------------------------------------------------------------------------
+
+STRUCTURED = {
+    "json": ('{"password": "dahlia77"}', ["dahlia77"], '{"password": "[REDACTED]"}'),
+    "python-dict": ("{'password': 'anise55'}", ["anise55"], "{'password': '[REDACTED]'}"),
+    "nested-json": ('{"auth": {"pwd": "tulip66"}}', ["tulip66"], '{"auth": {"pwd": "[REDACTED]"}}'),
+    "two-keys": ('{"api_key": "peony8899", "token": "iris4455"}', ["peony8899", "iris4455"],
+                 '{"api_key": "[REDACTED]", "token": "[REDACTED]"}'),
+}
+
+
+@pytest.mark.parametrize("case", list(STRUCTURED))
+def test_json_and_dict_values_are_masked_and_the_rest_kept(case):
+    text, values, masked = STRUCTURED[case]
+    assert quality.mask_credentials(text) == masked
+    for value in values:
+        assert value in quality.withheld_values(text)
+
+
+USERINFO = {
+    "postgres": ("postgres://admin:sycamore99@db.example.com:5432/prod", "admin:sycamore99", "sycamore99",
+                 "postgres://[REDACTED]@db.example.com:5432/prod"),
+    "https": ("https://alice:buttercup77@git.internal.local/repo.git", "alice:buttercup77", "buttercup77",
+              "https://[REDACTED]@git.internal.local/repo.git"),
+    "redis": ("redis://:verbena55@cache.internal:6379/0", ":verbena55", "verbena55",
+              "redis://[REDACTED]@cache.internal:6379/0"),
+    "mongodb-srv": ("mongodb+srv://ops:tarragon88@cluster0.example.net/db", "ops:tarragon88", "tarragon88",
+                    "mongodb+srv://[REDACTED]@cluster0.example.net/db"),
+}
+
+
+@pytest.mark.parametrize("case", list(USERINFO))
+def test_url_userinfo_is_masked_whole(case):
+    text, userinfo, password, masked = USERINFO[case]
+    assert quality.mask_credentials(text) == masked
+    withheld = quality.withheld_values(text)
+    assert userinfo in withheld and password in withheld
+
+
+@pytest.mark.parametrize("case", list(USERINFO))
+def test_url_userinfo_never_leaks(case, tmp_path, monkeypatch):
+    text, _, password, _ = USERINFO[case]
+    assert run_one(f"Trail Tracker connects to {text} at startup.", password, tmp_path, monkeypatch)[0] == []
+
+
+@pytest.mark.parametrize("param", ["api_key", "auth", "token", "password", "secret", "key"])
+def test_url_query_secrets_are_masked(param):
+    text = f"https://api.example.com/v2/items?{param}=lilac{len(param)}x9&page=2"
+    assert quality.mask_credentials(text) == f"https://api.example.com/v2/items?{param}=[REDACTED]&page=2"
+    assert f"lilac{len(param)}x9" in quality.withheld_values(text)
+
+
+BASE64 = {
+    "long-candidate": ("Trail Tracker uses Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg= for sync.",
+                       "Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg="),
+    "short-padded-after-label": ("my token QWxhZGRpbjpvcGVu== for Trail Tracker", "QWxhZGRpbjpvcGVu=="),
+    "basic-auth-header": ("auth header: Basic dXNlcjpwYXNzd29yZDEyMw==", "dXNlcjpwYXNzd29yZDEyMw=="),
+}
+
+
+@pytest.mark.parametrize("case", list(BASE64))
+def test_base64_candidates_are_masked(case):
+    text, value = BASE64[case]
+    assert value not in quality.clean_message(text)
+    assert value in quality.withheld_values(text)
+
+
+MORE_LABELS = {
+    "pass": "pass: almond42", "pw": "pw = almond43", "pwd": "pwd is almond44", "pin": "the PIN is 4821",
+    "otp": "otp: 739201", "2fa-code": "my 2fa code is 551903", "recovery-code": "recovery code: wx7k-q2m9",
+    "session-cookie": "session cookie = sid88almond", "cookie": "cookie: almond45sid", "psk": "psk is almond46",
+    "secret-code": "the secret-code is almond47", "seed-phrase": "seed phrase: tiger ocean almond lamp",
+    "auth-header": "auth header: Bearer almond48almond48", "credentials": "credentials: admin / almond49",
+    "credentials-are": "the credentials are almond50", "french": "mot de passe : lavande42",
+    "spanish": "contraseña: girasol42", "german": "Passwort: kornblume42", "chinese": "密码: mudan42",
+    "japanese": "パスワード: sakura42",
+}
+MORE_LABEL_VALUES = {
+    "pass": "almond42", "pw": "almond43", "pwd": "almond44", "pin": "4821", "otp": "739201",
+    "2fa-code": "551903", "recovery-code": "wx7k-q2m9", "session-cookie": "sid88almond", "cookie": "almond45sid",
+    "psk": "almond46", "secret-code": "almond47", "seed-phrase": "tiger ocean almond lamp",
+    "auth-header": "almond48almond48", "credentials": "admin / almond49", "credentials-are": "almond50",
+    "french": "lavande42", "spanish": "girasol42", "german": "kornblume42", "chinese": "mudan42",
+    "japanese": "sakura42",
+}
+
+
+@pytest.mark.parametrize("case", list(MORE_LABELS))
+def test_more_labels_are_masked_and_withheld(case):
+    text, value = MORE_LABELS[case], MORE_LABEL_VALUES[case]
+    cleaned = quality.clean_message(f"{text}\nTrail Tracker deploys nightly.")
+    assert value not in cleaned and not _words_in(value, cleaned)
+    assert value in quality.withheld_values(text)
+
+
+@pytest.mark.parametrize("text", [
+    "The password policy requires 12 characters.",
+    "Reset your password from the settings page.",
+    "I use a pin in my map.",
+    "The Basic plan is cheap.",
+    "Trail Tracker uses JWT tokens for mobile auth.",
+    "I'm building PassVault, an offline password manager in Rust.",
+    "Muse has a daily limit of 200,000 tokens.",
+    "We renamed PRIMARY_KEY to USER_ID in Harbor Log.",
+    "Git commit 3f9c2a1b7d4e6f8091a2b3c4d5e6f708192a3b4c fixed the build.",
+])
+def test_false_positive_guard_ordinary_sentences_are_not_masked(text):
+    assert quality.mask_credentials(text) == text
+
+
+def property_corpus_bc():
+    corpus = [NORMALIZED[k] for k in NORMALIZED]
+    corpus += [(STRUCTURED[k][0], v) for k in STRUCTURED for v in STRUCTURED[k][1]]
+    corpus += [(USERINFO[k][0], USERINFO[k][1]) for k in USERINFO]
+    corpus += [(BASE64[k][0], BASE64[k][1]) for k in BASE64]
+    corpus += [(MORE_LABELS[k], MORE_LABEL_VALUES[k]) for k in MORE_LABELS]
+    return corpus
+
+
+def test_property_holds_for_normalized_and_new_shapes():
+    misses = []
+    for text, value in property_corpus_bc():
+        prepared = quality.premask_text(text)
+        spans = quality.credential_values(prepared)
+        withheld = quality.withheld_values(text)
+        if not spans:
+            misses.append((text, "nothing masked"))
+        covered = value in withheld or (any(value in s for s in spans)
+                                        and all(w in withheld for w in value.split() if len(w) >= 3))
+        if not covered:
+            misses.append((text, value))
+        misses += [(text, s) for s in spans if s not in withheld]
+    assert not misses, misses[:20]

@@ -40,6 +40,7 @@ describes the conversation keeps its links but no summary.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import TYPE_CHECKING
 
 from ..transcript import ROLE_USER, Message
@@ -97,7 +98,9 @@ _DEFINITION = re.compile(r"^\s*(what(?:'s|\s+(?:is|are|was|were))|who(?:'s|\s+(?
 # -- secrets without a recognizable prefix ("my password is hunter2", "client_secret = xyz") --
 # Labels, written with spaces; any one space may also be "_" or "-" ("api key", "api_key", "api-key").
 SECRET_LABELS = ("client secret", "secret key", "api key", "access key", "private key", "passphrase", "passcode",
-                 "password", "passwd", "pwd", "secret", "token", "key")
+                 "password", "passwd", "pwd", "secret", "token", "key", "pass", "pw", "pin", "otp", "2fa code",
+                 "recovery code", "session cookie", "cookie", "psk", "secret code", "seed phrase", "auth header",
+                 "auth", "credentials", "mot de passe", "contraseña", "passwort", "密码", "パスワード")
 # Credential variable names, as suffixes (ANTHROPIC_API_KEY, GITHUB_TOKEN, DB_PASSWD, GH_PAT; PAT needs a prefix).
 SECRET_VAR_SUFFIXES = ("API_KEY", "ACCESS_KEY", "SECRET_KEY", "PRIVATE_KEY", "CLIENT_SECRET", "SECRET", "TOKEN",
                        "PASSWORD", "PASSWD", "PAT")
@@ -110,10 +113,13 @@ _LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-
 # Up to 6 words may sit between the label and the connector ("the password for Harbor Log is ...",
 # "the password (for prod) is ...", "the token for harbor.log is ..."); a word holds no clause or sentence end.
 _FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
-# The connector: "=", ":", "is", "was", "is now", "set to", "is set to", "equals", "is equal to". A key in
-# quotes may close before ":" ('"password": "x"'), and the value may sit on the next line ("password:\nx").
-_CONNECT = (r"(?:[\"']?[ \t]*[:=][ \t]*(?:\n[ \t]*)?"
-            r"|[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|(?:is|was)(?:[ \t]+now)?)"
+# The connector: "=", ":", "->", "=>", an em or en dash, "is", "was", "are", "is now", "set to", "is set to",
+# "equals", "is equal to", "will be", or 是 / は after a Chinese or Japanese label. A key in quotes may close
+# before ":" ('"password": "x"'), and the value may sit on the next line ("password:\nx").
+_CONNECT = (r"(?:[\"']?[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:\n[ \t]*)?"
+            r"|[ \t]*[是は][ \t]*"
+            r"|[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|will[ \t]+be|"
+            r"(?:is|was|are)(?:[ \t]+now)?)"
             r"(?:[ \t]+|[ \t]*\n[ \t]*))")
 # The value runs to the end of the clause, so a passphrase ("blue sky mining") is masked whole. It also
 # ends at a quote, a closing bracket, or "&" before another URL parameter ("?api_key=x&v=1"); an opening
@@ -122,10 +128,42 @@ _CONNECT = (r"(?:[\"']?[ \t]*[:=][ \t]*(?:\n[ \t]*)?"
 _VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[\w.-]+=)|[.!?](?:\s|$)|\n|$))"""
 _CLAUSE = r"""["']?(?P<{name}>[^\s,;"'\)\]\}\{\[\(<][^,;"'\)\]\}\n]*?)""" + _VALUE_END
 _TOKEN_VALUE = r"[A-Za-z0-9._~+/=-]*[A-Za-z0-9_~+/=-]"  # a header token; a trailing "." ends the sentence
+_B64_END = r"(?![A-Za-z0-9+/=_-])"
 _CREDENTIAL = re.compile(
-    rf"{_LABEL}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"          # the password for Harbor Log is x; KEY=x
+    rf"{_LABEL}{_FILLER}[ \t]+(?P<h>[A-Za-z0-9+/]{{4,}}={{1,2}}){_B64_END}"  # my token QWxhZGRpbjpvcGVu==
+    rf"|{_LABEL}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"         # the password for Harbor Log is x; KEY=x
     rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
-    r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")", re.I)
+    r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")"
+    rf"|\bbasic\s+(?P<f>(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}={{0,2}}){_B64_END}"  # Basic dXNlcjpw...
+    r"|\b[a-z][a-z0-9+.-]*://(?P<u>[^\s/@:\"'<>]*:[^\s/@\"'<>]+)(?=@)"  # postgres://admin:x@host (user:pass)
+    rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}",  # a 32+ char token, checked below
+    re.I)
+
+# Matching runs on a normalized copy (NFKC, so fullwidth : and = become ASCII; zero-width characters
+# removed; every Unicode space a space; a few Cyrillic lookalikes as Latin letters). Spans map back to the
+# original, which is what gets masked; the normalized copy is never stored.
+_ZERO_WIDTH = frozenset("\u200b\u200c\u200d\u2060\ufeff")
+_LOOKALIKE = {"\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0445": "x",
+              "\u0410": "A", "\u0415": "E", "\u041e": "O", "\u0420": "P", "\u0421": "C", "\u0425": "X"}
+
+
+def _normalized(text: str) -> tuple[str, "list[int] | range"]:
+    """The normalized copy of ``text`` and, for each of its characters, the index it came from."""
+    if text.isascii():  # nothing to normalize; the fast path for almost every message
+        return text, range(len(text))
+    out, origin = [], []
+    for i, ch in enumerate(text):
+        if ch in _ZERO_WIDTH:
+            continue
+        norm = _LOOKALIKE.get(ch) or unicodedata.normalize("NFKC", ch)
+        for c in norm:
+            out.append(" " if unicodedata.category(c) == "Zs" else c)
+            origin.append(i)
+    return "".join(out), origin
+
+
+def _looks_random(token: str) -> bool:
+    return any(c.isupper() for c in token) and any(c.islower() for c in token) and any(c.isdigit() for c in token)
 _SECRET_VAR = re.compile(r"\b(?:[A-Z0-9]+_)*(?:" + "|".join(v for v in SECRET_VAR_SUFFIXES if v != "PAT")
                          + r")\b|\b(?:[A-Z0-9]+_)+PAT\b")
 _SECRET_NOUN = (r"(?:client[ _-]?secrets?|secret[ _-]?keys?|api[ _-]?keys?|access[ _-]?keys?|private[ _-]?keys?|"
@@ -138,19 +176,35 @@ _USER_HOLDS_SECRET = re.compile(
     rf"(?:an?\s+|the\s+|their\s+|my\s+|our\s+|his\s+|her\s+)?(?:\w+\s+)?{_SECRET_NOUN}\b", re.I)
 
 
+def _credential_matches(text: str) -> list[tuple[int, int, str, str]]:
+    """(start, end, normalized value, kind) of every credential value in ``text``; start and end index
+    the original text."""
+    norm, origin = _normalized(text or "")
+    found = []
+    for m in _CREDENTIAL.finditer(norm):
+        kind = next(k for k, v in m.groupdict().items() if v)
+        value = m.group(kind)
+        if value == "[REDACTED]" or (kind == "g" and not _looks_random(value)):
+            continue
+        start, end = m.span(kind)
+        found.append((origin[start], origin[end - 1] + 1, value, kind))
+    return found
+
+
 def credential_spans(text: str) -> list[tuple[int, int]]:
     """(start, end) of every credential value in ``text``. The one rule set behind the mask, the
     withheld values and the node filter, so they can never disagree."""
-    spans = []
-    for m in _CREDENTIAL.finditer(text or ""):
-        name = next(k for k, v in m.groupdict().items() if v)
-        if m.group(name) != "[REDACTED]":
-            spans.append(m.span(name))
-    return spans
+    return [(s, e) for s, e, _, _ in _credential_matches(text)]
 
 
 def has_credential(text: str) -> bool:
     return bool(credential_spans(text))
+
+
+def _holds_withheld(fields: str, withheld: "set[str] | frozenset[str]") -> bool:
+    """True if ``fields`` (as written, or normalized) contains a withheld value of 3+ characters."""
+    folded = (fields.lower(), _normalized(fields)[0].lower())
+    return any(len(v) >= 3 and any(v.lower() in f for f in folded) for v in withheld)
 
 
 def mask_credentials(text: str) -> str:
@@ -178,7 +232,12 @@ def withheld_values(text: str) -> set[str]:
     clean_message masks, with the same rules), plus each word of them that the model never sees, so a
     node that repeats only part of an over-masked clause is dropped too."""
     prepared = premask_text(text)
-    values = credential_values(text) | credential_values(prepared)
+    values = set()
+    for source in (text or "", prepared):
+        for s, e, norm, kind in _credential_matches(source):
+            values |= {source[s:e], norm}
+            if kind == "u":  # the password part of user:pass on its own
+                values.add(norm.split(":", 1)[1])
     visible = {w.strip(".,;:!?()'\"").lower() for w in mask_credentials(prepared).split()}
     words = {w.strip(".,;:!?()'\"") for v in values for w in v.split()}
     return values | {w for w in words if len(w) >= 3 and w.lower() not in visible}
@@ -406,7 +465,7 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
         # Any node, "Me" too, whose name, summary or evidence holds a label, a connector and a value is
         # dropped ("The password for Harbor Log is x"): losing the fact is the price.
         if (has_secret(n) or (talks_about_secrets(n) and not is_me) or has_credential(fields)
-                or any(len(v) >= 3 and v.lower() in fields.lower() for v in withheld)):
+                or _holds_withheld(fields, withheld)):
             dropped["secret"] += 1
             continue
         if not grounded(n, source):
