@@ -51,6 +51,12 @@ DEFAULT_SESSIONS_LIMIT = 50
 MAX_SESSIONS_LIMIT = 200
 MAX_SESSION_NODES = 200
 MAX_SESSION_EDGES = 400
+DEFAULT_NODES_LIMIT = 50
+MAX_NODES_LIMIT = 200
+MAX_SEARCH_MATCHES = 2000  # q: at most this many FTS matches are filtered, sorted and paged
+_OFFSET = re.compile(r"^[0-9]{1,9}$")
+_SORTS = ("name", "type", "confidence", "updated_at")
+_ORDERS = ("asc", "desc")
 
 
 class BadRequest(ValueError):
@@ -272,8 +278,49 @@ def agents(cfg: Config, params: dict) -> dict:
     return {"agents": [dict(r) for r in rows]}
 
 
+def nodes(cfg: Config, params: dict) -> dict:
+    """The Explorer's list: filter, sort and page nodes. Uses the store's own methods (all_nodes, and the FTS
+    search for q), so no SQL is built from input; every parameter is checked against a fixed set first."""
+    limit_text, offset_text = _one(params, "limit"), _one(params, "offset")
+    limit = min(DEFAULT_NODES_LIMIT if limit_text is None else _positive_int(limit_text, "limit"), MAX_NODES_LIMIT)
+    if offset_text is not None and not _OFFSET.match(offset_text):
+        raise BadRequest("offset must be a whole number")
+    offset = int(offset_text or 0)
+    type_ = _one(params, "type") or None
+    if type_ is not None and not _TYPE.match(type_):
+        raise BadRequest("type must be a node type")
+    status = _one(params, "status") or "all"
+    if status not in _STATUSES:
+        raise BadRequest("status must be one of: active, superseded, all")
+    sort = _one(params, "sort") or None
+    if sort is not None and sort not in _SORTS:
+        raise BadRequest(f"sort must be one of: {', '.join(_SORTS)}")
+    order = _one(params, "order") or "asc"
+    if order not in _ORDERS:
+        raise BadRequest("order must be asc or desc")
+    q = _one(params, "q")
+    if q is not None and len(q) > MAX_QUERY_CHARS:
+        raise BadRequest(f"q may be at most {MAX_QUERY_CHARS} characters")
+    with open_memory(cfg.db_path) as store:
+        if q and q.strip():
+            found = [n for n, _ in store.search(q, MAX_SEARCH_MATCHES, include_superseded=True)]
+            sort = sort or None  # without a sort, keep the search's relevance order
+        else:
+            found = store.all_nodes(include_superseded=True)
+            sort = sort or "name"
+    found = [n for n in found if (type_ is None or n.type == type_) and (status == "all" or n.status == status)]
+    if sort is not None:
+        key = {"name": lambda n: (n.name.lower(), n.id), "type": lambda n: (n.type, n.name.lower(), n.id),
+               "confidence": lambda n: (n.confidence, n.id), "updated_at": lambda n: (n.updated_at, n.id)}[sort]
+        found.sort(key=key, reverse=order == "desc")
+    page = found[offset:offset + limit]
+    return {"total": len(found), "items": [{"id": n.id, "type": n.type, "name": n.name, "status": n.status,
+                                            "confidence": n.confidence, "updated_at": n.updated_at} for n in page]}
+
+
 _ROUTES = {"/api/health": health, "/api/graph": graph, "/api/search": search, "/api/presence": presence,
-           "/api/stats": stats, "/api/sessions": sessions, "/api/agents": agents}
+           "/api/stats": stats, "/api/sessions": sessions, "/api/agents": agents,
+           "/api/nodes": nodes}
 
 
 # -- HTTP ----------------------------------------------------------------------------------------------------------

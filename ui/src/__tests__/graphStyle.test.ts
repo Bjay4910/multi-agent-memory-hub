@@ -3,9 +3,15 @@ import { GRAPH_STYLE, fitPadding, selectedVal } from "../graphStyle";
 import { nodeSize } from "../graphData";
 
 describe("graph style", () => {
-  it("keeps bloom soft enough that big hubs keep their type colour", () => {
-    expect(GRAPH_STYLE.bloomStrength).toBeLessThanOrEqual(0.45);
-    expect(GRAPH_STYLE.bloomThreshold).toBeGreaterThanOrEqual(0.5);
+  it("uses a middle glow: luminous nodes that keep their type colour (F5 values; replaced the F4 bounds)", () => {
+    expect(GRAPH_STYLE.bloomStrength).toBeGreaterThanOrEqual(0.5);
+    expect(GRAPH_STYLE.bloomStrength).toBeLessThanOrEqual(0.6);
+    expect(GRAPH_STYLE.bloomThreshold).toBeGreaterThanOrEqual(0.4);
+    expect(GRAPH_STYLE.bloomThreshold).toBeLessThanOrEqual(0.5);
+  });
+  it("tints node materials with a mild emissive glow of their own colour", () => {
+    expect(GRAPH_STYLE.emissiveIntensity).toBeGreaterThan(0);
+    expect(GRAPH_STYLE.emissiveIntensity).toBeLessThanOrEqual(0.5);
   });
   it("caps the node size, including the selected node", () => {
     expect(nodeSize(1_000_000)).toBe(GRAPH_STYLE.maxNodeVal);

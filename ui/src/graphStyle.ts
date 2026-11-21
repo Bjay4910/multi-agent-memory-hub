@@ -1,10 +1,13 @@
 // Visual tuning for the 3D graph, kept in one place so it can be tested.
 
 export const GRAPH_STYLE = {
-  // Bloom: soft, and only for bright highlights, so large hubs keep their type colour when zoomed in.
-  bloomStrength: 0.32,
-  bloomRadius: 0.35,
-  bloomThreshold: 0.62,
+  // Bloom: a middle value. F3 (0.6 / 0.18) washed hubs out to white when zoomed in; F4 (0.32 / 0.62) left nodes
+  // matte. Measured on screenshots with ui/scripts/measure-glow.mjs (npm run check:glow).
+  bloomStrength: 0.55,
+  bloomRadius: 0.4,
+  bloomThreshold: 0.5,
+  // Node materials glow faintly in their own colour, so they look luminous without turning white.
+  emissiveIntensity: 0.1,
   // 3d-force-graph draws a node as a sphere of radius cbrt(val) * nodeRelSize.
   nodeRelSize: 4,
   maxNodeVal: 24,

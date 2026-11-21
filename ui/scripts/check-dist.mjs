@@ -19,6 +19,12 @@ const REVIEWED = new Map([
   ["https://github.com/styled-components/polished/blob/main/src/internalHelpers/errors.md#", "text of a polished error message (3d-force-graph dependency)"],
 ]);
 
+// The Privacy page shows the docs' exact test examples as text (src/generated/privacy.json). Their fake URLs
+// (example.com and similar) are bundled as strings, never requested and never rendered as links.
+const privacyText = (() => {
+  try { return readFileSync(new URL("../src/generated/privacy.json", import.meta.url), "utf8"); } catch { return ""; }
+})();
+
 function files(dir) {
   return readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
@@ -36,7 +42,8 @@ for (const file of files(new URL("../dist", import.meta.url).pathname)) {
 }
 let unknown = 0;
 for (const [url, where] of [...found].sort()) {
-  const reason = REVIEWED.get(url);
+  const reason = REVIEWED.get(url)
+    ?? (privacyText.includes(url) ? "fake test example from docs/MEMORY.md, shown as text on the Privacy page" : undefined);
   if (!reason) unknown++;
   console.log(`${reason ? "reviewed" : "UNKNOWN "}  ${url}  (${where.length}x in ${[...new Set(where)].join(", ")})${reason ? ` - ${reason}` : ""}`);
 }

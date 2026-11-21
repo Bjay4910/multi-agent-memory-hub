@@ -1,0 +1,1466 @@
+{
+  "generatedFrom": {
+    "docs": "docs/MEMORY.md",
+    "readme": "README.md",
+    "docsCommit": "1fc1e59"
+  },
+  "verifiedMeans": "Verified means: these exact examples, with only the secret value changed to another value of the same kind, at least the row's minimum length and within its case limit (both shown in the table).",
+  "handledForms": [
+    {
+      "form": "label, is, value",
+      "formParts": [
+        {
+          "code": false,
+          "text": "label,"
+        },
+        {
+          "code": true,
+          "text": "is"
+        },
+        {
+          "code": false,
+          "text": ", value"
+        }
+      ],
+      "examples": [
+        "the password is swordfish"
+      ],
+      "test": "round3 test_plain_word_password_in_every_shape_never_leaks",
+      "minimumLength": "none",
+      "source": "round3"
+    },
+    {
+      "form": "label, = or : , value",
+      "formParts": [
+        {
+          "code": false,
+          "text": "label,"
+        },
+        {
+          "code": true,
+          "text": " = "
+        },
+        {
+          "code": false,
+          "text": "or"
+        },
+        {
+          "code": true,
+          "text": ": "
+        },
+        {
+          "code": false,
+          "text": ", value"
+        }
+      ],
+      "examples": [
+        "client_secret = xyz",
+        "pwd: orange"
+      ],
+      "test": "round3 test_prefixless_secret_in_every_shape_never_leaks",
+      "minimumLength": "none",
+      "source": "round3"
+    },
+    {
+      "form": "label, filler words, connector, value",
+      "formParts": [
+        {
+          "code": false,
+          "text": "label, filler words, connector, value"
+        }
+      ],
+      "examples": [
+        "The password for Harbor Log is now42abc.",
+        "the api key on the staging server was qz81mbt",
+        "The token of my admin account is now pl4netx",
+        "the passcode for the front door set to 9a8b7c",
+        "Password for prod: driftwood",
+        "the secret for Harbor Log equals copperleaf",
+        "The password (for prod) is gl4cier",
+        "the token for harbor.log is m00nbeam",
+        "the key for \"Harbor Log\" is r1verstone"
+      ],
+      "test": "stage8 test_filler_words_between_label_and_connector_are_masked",
+      "minimumLength": "none",
+      "source": "stage8"
+    },
+    {
+      "form": "a value that starts with a status word",
+      "formParts": [
+        {
+          "code": false,
+          "text": "a value that starts with a status word"
+        }
+      ],
+      "examples": [
+        "The password is not-so-secret-42.",
+        "The api key is in-vault-7781.",
+        "the token is set4you99",
+        "my passphrase is valid forest lantern"
+      ],
+      "test": "stage8 test_status_word_values_are_masked",
+      "minimumLength": "none",
+      "source": "stage8"
+    },
+    {
+      "form": "value on the line after : or =",
+      "formParts": [
+        {
+          "code": false,
+          "text": "value on the line after"
+        },
+        {
+          "code": true,
+          "text": ":"
+        },
+        {
+          "code": false,
+          "text": "or"
+        },
+        {
+          "code": true,
+          "text": "="
+        }
+      ],
+      "examples": [
+        "Trail Tracker password:\\nmagnolia77",
+        "API_KEY=\\nfirsthalf99"
+      ],
+      "test": "stage9 test_value_on_the_next_line_is_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage9"
+    },
+    {
+      "form": "value after one blank line after :",
+      "formParts": [
+        {
+          "code": false,
+          "text": "value after one blank line after"
+        },
+        {
+          "code": true,
+          "text": ":"
+        }
+      ],
+      "examples": [
+        "password:\\n\\n  amber22"
+      ],
+      "test": "stage10 test_yaml_value_after_blank_lines_is_masked_by_both_layers_and_withheld",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "NBSP, fullwidth ： ＝, zero-width space, Cyrillic а, em dash, ->, will be",
+      "formParts": [
+        {
+          "code": false,
+          "text": "NBSP, fullwidth"
+        },
+        {
+          "code": true,
+          "text": "："
+        },
+        {
+          "code": true,
+          "text": "＝"
+        },
+        {
+          "code": false,
+          "text": ", zero-width space, Cyrillic а, em dash,"
+        },
+        {
+          "code": true,
+          "text": "->"
+        },
+        {
+          "code": false,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": "will be"
+        }
+      ],
+      "examples": [
+        "Trail Tracker password is garnet44",
+        "password： violet66",
+        "API_KEY＝ topaz99",
+        "PASS​WORD: indigo44",
+        "pаssword is orchid55",
+        "password — quartz55",
+        "My password for Trail Tracker -> marigold55.",
+        "My password for Trail Tracker will be juniper66."
+      ],
+      "test": "stage9 test_normalized_shapes_are_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage9"
+    },
+    {
+      "form": "more labels",
+      "formParts": [
+        {
+          "code": false,
+          "text": "more labels"
+        }
+      ],
+      "examples": [
+        "pass: almond42",
+        "pw = almond43",
+        "pwd is almond44",
+        "the PIN is 4821",
+        "otp: 739201",
+        "my 2fa code is 551903",
+        "recovery code: wx7k-q2m9",
+        "session cookie = sid88almond",
+        "cookie: almond45sid",
+        "psk is almond46",
+        "the secret-code is almond47",
+        "seed phrase: tiger ocean almond lamp",
+        "auth header: Bearer almond48almond48",
+        "credentials: admin / almond49",
+        "the credentials are almond50",
+        "mot de passe : lavande42",
+        "contraseña: girasol42",
+        "Passwort: kornblume42",
+        "密码: mudan42",
+        "パスワード: sakura42"
+      ],
+      "test": "stage9 test_more_labels_are_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage9"
+    },
+    {
+      "form": "labels jwt, totp, hmac, license key",
+      "formParts": [
+        {
+          "code": false,
+          "text": "labels jwt, totp, hmac, license key"
+        }
+      ],
+      "examples": [
+        "jwt: Ab3dEf7gHi9jKl",
+        "totp = 482913",
+        "hmac: f00dbabe99",
+        "license key: ABCD-1234-EFGH"
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "JSON / Python dict value",
+      "formParts": [
+        {
+          "code": false,
+          "text": "JSON / Python dict value"
+        }
+      ],
+      "examples": [
+        "{\"password\": \"dahlia77\"}",
+        "{'password': 'anise55'}",
+        "{\"auth\": {\"pwd\": \"tulip66\"}}",
+        "{\"api_key\": \"peony8899\", \"token\": \"iris4455\"}"
+      ],
+      "test": "stage9 test_json_and_dict_values_are_masked_and_the_rest_kept",
+      "minimumLength": "none",
+      "source": "stage9"
+    },
+    {
+      "form": "double-quoted value with , ; ) or \\\" inside",
+      "formParts": [
+        {
+          "code": false,
+          "text": "double-quoted value with"
+        },
+        {
+          "code": true,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": ";"
+        },
+        {
+          "code": true,
+          "text": ")"
+        },
+        {
+          "code": false,
+          "text": "or"
+        },
+        {
+          "code": true,
+          "text": "\\\""
+        },
+        {
+          "code": false,
+          "text": "inside"
+        }
+      ],
+      "examples": [
+        "{\"password\": \"alpha,beta99\", \"env\": \"prod\"}",
+        "DB_PASSWORD=\"p@ss;word88\"",
+        "{\"password\": \"ab)cd99\", \"env\": \"prod\"}",
+        "{\"password\": \"pre\\\"post77\", \"env\": \"prod\"}"
+      ],
+      "test": "stage10 test_quoted_value_is_masked_through_the_closing_quote",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "value in ( ) or < >, or after ==",
+      "formParts": [
+        {
+          "code": false,
+          "text": "value in"
+        },
+        {
+          "code": true,
+          "text": "( )"
+        },
+        {
+          "code": false,
+          "text": "or"
+        },
+        {
+          "code": true,
+          "text": "< >"
+        },
+        {
+          "code": false,
+          "text": ", or after"
+        },
+        {
+          "code": true,
+          "text": "=="
+        }
+      ],
+      "examples": [
+        "password is (orchid77) in prod.",
+        "password: <topaz66>",
+        "api_key: ==garnet55"
+      ],
+      "test": "stage10 test_wrapped_value_is_masked_with_its_wrapper",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "two-level nested ( ) [ ] < > { }",
+      "formParts": [
+        {
+          "code": false,
+          "text": "two-level nested"
+        },
+        {
+          "code": true,
+          "text": "( )"
+        },
+        {
+          "code": true,
+          "text": "[ ]"
+        },
+        {
+          "code": true,
+          "text": "< >"
+        },
+        {
+          "code": true,
+          "text": "{ }"
+        }
+      ],
+      "examples": [
+        "password is (outer(inner746)) in prod.",
+        "token: [alpha[beta857]]",
+        "pwd: <x<y179>> for prod",
+        "api_key = {gamma{delta968}} here"
+      ],
+      "test": "stage11 test_a_family_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "Markdown or quoted label, connector",
+      "formParts": [
+        {
+          "code": false,
+          "text": "Markdown or quoted label, connector"
+        }
+      ],
+      "examples": [
+        "**Password**: sycamore38",
+        "`api_key`: chestnut29",
+        "\"password\" is walnut64."
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "Markdown or quoted label, filler words, connector",
+      "formParts": [
+        {
+          "code": false,
+          "text": "Markdown or quoted label, filler words, connector"
+        }
+      ],
+      "examples": [
+        "**Password** for Trail Tracker is camellia981.",
+        "`api_key` for Trail Tracker = azalea192",
+        "\"password\" for Trail Tracker is begonia203.",
+        "'secret' for prod is dahlia284",
+        "*token* on staging = elder395"
+      ],
+      "test": "stage11 test_a_family_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "URL userinfo",
+      "formParts": [
+        {
+          "code": false,
+          "text": "URL userinfo"
+        }
+      ],
+      "examples": [
+        "postgres://admin:sycamore99@db.example.com:5432/prod",
+        "https://alice:buttercup77@git.internal.local/repo.git",
+        "redis://:verbena55@cache.internal:6379/0",
+        "mongodb+srv://ops:tarragon88@cluster0.example.net/db"
+      ],
+      "test": "stage9 test_url_userinfo_is_masked_whole",
+      "minimumLength": "none",
+      "source": "stage9"
+    },
+    {
+      "form": "URL query secret (params api_key, auth, token, password, secret, key)",
+      "formParts": [
+        {
+          "code": false,
+          "text": "URL query secret (params api_key, auth, token, password, secret, key)"
+        }
+      ],
+      "examples": [
+        "https://api.example.com/v2/items?api_key=lilac7x9&page=2"
+      ],
+      "test": "stage9 test_url_query_secrets_are_masked",
+      "minimumLength": "none",
+      "source": "stage9"
+    },
+    {
+      "form": "URL query, & before a bracketed parameter",
+      "formParts": [
+        {
+          "code": false,
+          "text": "URL query,"
+        },
+        {
+          "code": true,
+          "text": "&"
+        },
+        {
+          "code": false,
+          "text": "before a bracketed parameter"
+        }
+      ],
+      "examples": [
+        "https://api.example.com/search?token=violet94&filter[a]=1"
+      ],
+      "test": "stage10 test_query_value_ends_at_ampersand_before_a_bracketed_parameter",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "base64 of 32+ characters, mixed case and digits",
+      "formParts": [
+        {
+          "code": false,
+          "text": "base64 of 32+ characters, mixed case and digits"
+        }
+      ],
+      "examples": [
+        "Trail Tracker uses Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg= for sync."
+      ],
+      "test": "stage9 test_base64_candidates_are_masked",
+      "minimumLength": "32+ base64 characters, with an upper-case letter, a lower-case letter and a digit",
+      "source": "stage9"
+    },
+    {
+      "form": "padded base64 after a label",
+      "formParts": [
+        {
+          "code": false,
+          "text": "padded base64 after a label"
+        }
+      ],
+      "examples": [
+        "my token QWxhZGRpbjpvcGVu== for Trail Tracker",
+        "auth header: Basic dXNlcjpwYXNzd29yZDEyMw=="
+      ],
+      "test": "stage9 test_base64_candidates_are_masked",
+      "minimumLength": "== padding (both examples): 4+ base64 characters before it, any case; the Basic example: as in row 24. Single =: see the next row",
+      "source": "stage9"
+    },
+    {
+      "form": "= / == padded base64 under 32 characters after a label, with or without words after it",
+      "formParts": [
+        {
+          "code": true,
+          "text": "="
+        },
+        {
+          "code": false,
+          "text": "/"
+        },
+        {
+          "code": true,
+          "text": "=="
+        },
+        {
+          "code": false,
+          "text": "padded base64 under 32 characters after a label, with or without words after it"
+        }
+      ],
+      "examples": [
+        "my token YWRtaW46cGFzc3dvcmQ= for Trail Tracker",
+        "my token YWJjZGU= for Trail Tracker",
+        "my api key Zm9vYmFyOTk= for Trail Tracker",
+        "my secret c2VjcmV0S2V5MQ== for Trail Tracker",
+        "my token YWRtaW46cGFzc3dvcmQ=",
+        "my token YWJjZGU=",
+        "my api key Zm9vYmFyOTk=",
+        "my secret c2VjcmV0S2V5MQ=="
+      ],
+      "test": "stage13 test_a_case_is_masked_and_withheld",
+      "minimumLength": "==: 4+ base64 characters before it, any case. Single = with words or a line after it: 4+ characters before it, mixed case only (an upper-case letter after the first character and a lower-case letter); all lower-case, all upper-case or capitalised-only values are not masked there (stage 15 known gap). Single = at the end of the message: 4+, any case",
+      "source": "stage13"
+    },
+    {
+      "form": "Authorization: Bearer",
+      "formParts": [
+        {
+          "code": true,
+          "text": "Authorization: Bearer"
+        }
+      ],
+      "examples": [
+        "Authorization: Bearer eyJhbGci..."
+      ],
+      "test": "round3 test_prefixless_secret_in_every_shape_never_leaks",
+      "minimumLength": "none",
+      "source": "round3"
+    },
+    {
+      "form": "JSON Authorization with Token",
+      "formParts": [
+        {
+          "code": false,
+          "text": "JSON"
+        },
+        {
+          "code": true,
+          "text": "Authorization"
+        },
+        {
+          "code": false,
+          "text": "with"
+        },
+        {
+          "code": true,
+          "text": "Token"
+        }
+      ],
+      "examples": [
+        "{\"Authorization\": \"Token dogwood196\"}"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "Basic token of 12+ characters without digits",
+      "formParts": [
+        {
+          "code": true,
+          "text": "Basic"
+        },
+        {
+          "code": false,
+          "text": "token of 12+ characters without digits"
+        }
+      ],
+      "examples": [
+        "curl sends Basic YWFhOmFhYWFhYWFh to the API",
+        "header: Basic dXNlclBhc3NXb3Jk",
+        "send basic QWxhZGRpbkJvYmJ5 now"
+      ],
+      "test": "stage11 test_a_family_masks_the_value",
+      "minimumLength": "8+ base64 characters (not counting =) if one is a digit or = padding follows; otherwise 12+, with an upper-case letter after the first character and a lower-case letter",
+      "source": "stage11"
+    },
+    {
+      "form": "SendGrid SG. token, whole",
+      "formParts": [
+        {
+          "code": false,
+          "text": "SendGrid"
+        },
+        {
+          "code": true,
+          "text": "SG."
+        },
+        {
+          "code": false,
+          "text": "token, whole"
+        }
+      ],
+      "examples": [
+        "Trail Tracker mails through SendGrid with SG.<22 chars>.<43 chars> in prod.",
+        "FAKE_SG"
+      ],
+      "test": "stage10 test_sendgrid_token_is_masked_whole",
+      "minimumLength": "both parts after SG. 16+ characters each",
+      "source": "stage10"
+    },
+    {
+      "form": "glpat-, whsec_, Azure SAS sig=",
+      "formParts": [
+        {
+          "code": true,
+          "text": "glpat-"
+        },
+        {
+          "code": false,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": "whsec_"
+        },
+        {
+          "code": false,
+          "text": ", Azure SAS"
+        },
+        {
+          "code": true,
+          "text": "sig="
+        }
+      ],
+      "examples": [
+        "Trail Tracker CI uses glpat-AbCdEfGhIjKlMnOpQrSt12 for pushes",
+        "Webhook signing uses whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw in prod",
+        "...?sv=2021-08-06&sig=Ab3dEf%2BgHi9jKl%3D&se=2026",
+        "Upload to https://acct.blob.core.windows.net/c?sig=Q1w2E3r4T5y6%3D"
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "glpat body 20+; whsec body 16+; sig= value 8+",
+      "source": "stage10"
+    },
+    {
+      "form": "pypi-, hvs., Discord-style three segments, whsec_test_",
+      "formParts": [
+        {
+          "code": true,
+          "text": "pypi-"
+        },
+        {
+          "code": false,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": "hvs."
+        },
+        {
+          "code": false,
+          "text": ", Discord-style three segments,"
+        },
+        {
+          "code": true,
+          "text": "whsec_test_"
+        }
+      ],
+      "examples": [
+        "publish with pypi-AgEIcHlwaS5vcmcCJGQ4Yjc5ZTAw tonight",
+        "vault gave hvs.CAESIJlU9XnE2Kq7Wn5bF3dP0aQ1 to CI",
+        "bot uses MTA0NjE4NzQ5MjM0NTY3ODkw.GaBcDe.abcdefghijklmnopqrstuvwxyz0123 here",
+        "Stripe sends whsec_test_MfKQ9r8GKYqrTwjUPD8I in dev"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "pypi body 16+; hvs body 20+; Discord: first segment 24 to 28, second 6 to 7, third 27 to 64; whsec body (counting test_) 16+",
+      "source": "stage11"
+    },
+    {
+      "form": "a token used as a filler word of a label match",
+      "formParts": [
+        {
+          "code": false,
+          "text": "a token used as a filler word of a label match"
+        }
+      ],
+      "examples": [
+        "Webhook secret whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw is set"
+      ],
+      "test": "stage10 test_a_token_inside_the_filler_of_a_label_match_is_still_masked",
+      "minimumLength": "whsec body 16+",
+      "source": "stage10"
+    },
+    {
+      "form": "curl -u / --user / -b / --cookie, spaced",
+      "formParts": [
+        {
+          "code": false,
+          "text": "curl"
+        },
+        {
+          "code": true,
+          "text": "-u"
+        },
+        {
+          "code": false,
+          "text": "/"
+        },
+        {
+          "code": true,
+          "text": "--user"
+        },
+        {
+          "code": false,
+          "text": "/"
+        },
+        {
+          "code": true,
+          "text": "-b"
+        },
+        {
+          "code": false,
+          "text": "/"
+        },
+        {
+          "code": true,
+          "text": "--cookie"
+        },
+        {
+          "code": false,
+          "text": ", spaced"
+        }
+      ],
+      "examples": [
+        "curl -u deploy:hazel71 https://api.example.com/v1",
+        "curl --user ops:maple82 https://api.example.com/v1",
+        "curl -b 'sid=cedar93' https://api.example.com/v1",
+        "curl --cookie \"session=birch44\" https://api.example.com/v1"
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "curl: empty user, double-quoted with a space, attached -u, single-quoted --user and -b",
+      "formParts": [
+        {
+          "code": false,
+          "text": "curl: empty user, double-quoted with a space, attached"
+        },
+        {
+          "code": true,
+          "text": "-u"
+        },
+        {
+          "code": false,
+          "text": ", single-quoted"
+        },
+        {
+          "code": true,
+          "text": "--user"
+        },
+        {
+          "code": false,
+          "text": "and"
+        },
+        {
+          "code": true,
+          "text": "-b"
+        }
+      ],
+      "examples": [
+        "curl -u :marigold303 https://api.example.com",
+        "curl -u \"bot:blue marigold414\" https://api.example.com",
+        "curl -ubot:petunia525 https://api.example.com",
+        "curl --user 'ci:violet 828' https://api.example.com",
+        "curl -b 'sid=blue cedar606' https://api.example.com",
+        "curl --cookie \"session=lilac717\" https://api.example.com"
+      ],
+      "test": "stage11 test_a_family_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "redis-cli -a spaced, mysql -p attached, --password=, sshpass -p spaced and single-quoted",
+      "formParts": [
+        {
+          "code": true,
+          "text": "redis-cli -a"
+        },
+        {
+          "code": false,
+          "text": "spaced,"
+        },
+        {
+          "code": true,
+          "text": "mysql -p"
+        },
+        {
+          "code": false,
+          "text": "attached,"
+        },
+        {
+          "code": true,
+          "text": "--password="
+        },
+        {
+          "code": false,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": "sshpass -p"
+        },
+        {
+          "code": false,
+          "text": "spaced and single-quoted"
+        }
+      ],
+      "examples": [
+        "redis-cli -a quince55 -h cache.internal",
+        "mysql -u admin -prowan66 shop",
+        "mysql -u admin --password=aspen77 shop",
+        "sshpass -p 'larch88' ssh ops@db.internal"
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "mysql -p attached and quoted; --password=\"...\"; sshpass -p'...'; docker login -p spaced; redis-cli -a spaced and double-quoted; docker login --password=",
+      "formParts": [
+        {
+          "code": true,
+          "text": "mysql -p"
+        },
+        {
+          "code": false,
+          "text": "attached and quoted;"
+        },
+        {
+          "code": true,
+          "text": "--password=\"...\""
+        },
+        {
+          "code": false,
+          "text": ";"
+        },
+        {
+          "code": true,
+          "text": "sshpass -p'...'"
+        },
+        {
+          "code": false,
+          "text": ";"
+        },
+        {
+          "code": true,
+          "text": "docker login -p"
+        },
+        {
+          "code": false,
+          "text": "spaced;"
+        },
+        {
+          "code": true,
+          "text": "redis-cli -a"
+        },
+        {
+          "code": false,
+          "text": "spaced and double-quoted;"
+        },
+        {
+          "code": true,
+          "text": "docker login --password="
+        }
+      ],
+      "examples": [
+        "mysql -u admin -p'foxglove969' shop",
+        "mysql -u admin -p\"bluebell170\" shop",
+        "tool --password=\"red poppy281\" --verbose",
+        "sshpass -p'primrose392' ssh ops@db.internal",
+        "sshpass -p 'tansy503' ssh ops@db.internal",
+        "docker login -u ops -p parsley999 registry.example.com",
+        "redis-cli -a \"ivy 614\" ping",
+        "docker login -u ops --password=sage725 registry.example.com"
+      ],
+      "test": "stage11 test_a_family_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "YAML | and >- block scalar (first line)",
+      "formParts": [
+        {
+          "code": false,
+          "text": "YAML"
+        },
+        {
+          "code": true,
+          "text": "|"
+        },
+        {
+          "code": false,
+          "text": "and"
+        },
+        {
+          "code": true,
+          "text": ">-"
+        },
+        {
+          "code": false,
+          "text": "block scalar (first line)"
+        }
+      ],
+      "examples": [
+        "password: |\\n  spruce99",
+        "api_key: >-\\n  poplar11"
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "YAML block scalar with an indentation indicator",
+      "formParts": [
+        {
+          "code": false,
+          "text": "YAML block scalar with an indentation indicator"
+        }
+      ],
+      "examples": [
+        "password: |2\\n  yew229",
+        "api_key: >2-\\n  zelkova230"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "with / using + label + unquoted value with a digit",
+      "formParts": [
+        {
+          "code": true,
+          "text": "with"
+        },
+        {
+          "code": false,
+          "text": "/"
+        },
+        {
+          "code": true,
+          "text": "using"
+        },
+        {
+          "code": false,
+          "text": "+ label + unquoted value with a digit"
+        }
+      ],
+      "examples": [
+        "Connect with password juniper89 to the staging box.",
+        "Log in using token oak-77-ash today."
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "with / using + label + quoted value",
+      "formParts": [
+        {
+          "code": true,
+          "text": "with"
+        },
+        {
+          "code": false,
+          "text": "/"
+        },
+        {
+          "code": true,
+          "text": "using"
+        },
+        {
+          "code": false,
+          "text": "+ label + quoted value"
+        }
+      ],
+      "examples": [
+        "Connect with password \"lotus625\" to staging.",
+        "Log in using token 'clover736' today.",
+        "Sign in with key \"quiet harbor words\" now.",
+        "Deploy using password `fern847` today."
+      ],
+      "test": "stage11 test_a_family_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "login: user/PASS, login is user/PASS",
+      "formParts": [
+        {
+          "code": true,
+          "text": "login: user/PASS"
+        },
+        {
+          "code": false,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": "login is user/PASS"
+        }
+      ],
+      "examples": [
+        "login: admin/teak42",
+        "the login is ops/sequoia7 for staging"
+      ],
+      "test": "stage10 test_common_shape_masks_only_the_secret",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "login: user / PASS",
+      "formParts": [
+        {
+          "code": true,
+          "text": "login: user / PASS"
+        }
+      ],
+      "examples": [
+        "login: admin / teak141x",
+        "the login is ops / sequoia152 for staging"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "changed / reset / updated + label + to",
+      "formParts": [
+        {
+          "code": false,
+          "text": "changed / reset / updated + label +"
+        },
+        {
+          "code": true,
+          "text": "to"
+        }
+      ],
+      "examples": [
+        "I changed the password to hawthorn41.",
+        "We reset the api key to rowan52",
+        "They updated our token to sorrel63 today."
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "<label>'s <value>, <label> as <value> (value with a digit)",
+      "formParts": [
+        {
+          "code": true,
+          "text": "<label>'s <value>"
+        },
+        {
+          "code": false,
+          "text": ","
+        },
+        {
+          "code": true,
+          "text": "<label> as <value>"
+        },
+        {
+          "code": false,
+          "text": "(value with a digit)"
+        }
+      ],
+      "examples": [
+        "The password's hazel74.",
+        "Trail Tracker token's linden85x now",
+        "Use the token as willow96.",
+        "Set the password as aspen-107 for staging"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "glued upper-case env name",
+      "formParts": [
+        {
+          "code": false,
+          "text": "glued upper-case env name"
+        }
+      ],
+      "examples": [
+        "PGPASSWORD=spruce118 psql -h db.internal",
+        "export MYPASSWORD='cedar129'",
+        "GITHUB_TOKEN=ghxfake130"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "one-line JSON list under a plural key",
+      "formParts": [
+        {
+          "code": false,
+          "text": "one-line JSON list under a plural key"
+        }
+      ],
+      "examples": [
+        "{\"secrets\": [\"alder163\", \"birch174\"]}",
+        "{\"api_keys\": [\"cedar185\"]}"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "one-line XML element without attributes",
+      "formParts": [
+        {
+          "code": false,
+          "text": "one-line XML element without attributes"
+        }
+      ],
+      "examples": [
+        "<password>elm207</password>",
+        "<api_key>fir218</api_key>"
+      ],
+      "test": "stage11 test_b_shape_masks_the_value",
+      "minimumLength": "none",
+      "source": "stage11"
+    },
+    {
+      "form": "value glued to CJK text, in curly quotes, or before # (withheld piece: 5+ characters, or 3+ if it mixes letters and digits, since stage 13)",
+      "formParts": [
+        {
+          "code": false,
+          "text": "value glued to CJK text, in curly quotes, or before"
+        },
+        {
+          "code": true,
+          "text": "#"
+        },
+        {
+          "code": false,
+          "text": "(withheld piece: 5+ characters, or 3+ if it mixes letters and digits, since stage 13)"
+        }
+      ],
+      "examples": [
+        "我的密码是plum994别告诉别人",
+        "私のパスワードはsakura105です",
+        "My password is “mango993” for staging",
+        "https://svc.example.com?access_key=jay213#frag"
+      ],
+      "test": "stage12 test_c_case_is_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage12"
+    },
+    {
+      "form": "3- and 4-character letter+digit pieces split from CJK text or #",
+      "formParts": [
+        {
+          "code": false,
+          "text": "3- and 4-character letter+digit pieces split from CJK text or"
+        },
+        {
+          "code": true,
+          "text": "#"
+        }
+      ],
+      "examples": [
+        "我的密码是k9x4别告诉别人",
+        "私のパスワードはm7q2です",
+        "https://svc.example.com?access_key=j8k3#frag"
+      ],
+      "test": "stage13 test_a_case_is_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage13"
+    },
+    {
+      "form": "curly apostrophe, soft hyphen in the label, decomposed ñ in the label",
+      "formParts": [
+        {
+          "code": false,
+          "text": "curly apostrophe, soft hyphen in the label, decomposed ñ in the label"
+        }
+      ],
+      "examples": [
+        "The password’s acorn329 for staging.",
+        "pass\\u00adword: papaya104",
+        "La contrasen\\u0303a: canela883.",
+        "pwd: rose\\u0301x77"
+      ],
+      "test": "stage12 test_c_case_is_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage12"
+    },
+    {
+      "form": "one word then a quoted value; to be then a quoted value; an apostrophe between letters in the value",
+      "formParts": [
+        {
+          "code": false,
+          "text": "one word then a quoted value;"
+        },
+        {
+          "code": true,
+          "text": "to be"
+        },
+        {
+          "code": false,
+          "text": "then a quoted value; an apostrophe between letters in the value"
+        }
+      ],
+      "examples": [
+        "My password is really \"cranberry769\" for CI.",
+        "I set my password to be \"cranberry769\" for CI.",
+        "My password is o'brien882 for prod."
+      ],
+      "test": "stage12 test_c_case_is_masked_and_withheld",
+      "minimumLength": "none",
+      "source": "stage12"
+    },
+    {
+      "form": "~~~ code fence cut like ```",
+      "formParts": [
+        {
+          "code": true,
+          "text": "~~~"
+        },
+        {
+          "code": false,
+          "text": "code fence cut like ```"
+        }
+      ],
+      "examples": [
+        "My config:\\n~~~\\npassword = fir23\\n~~~\\nTrail Tracker deploys nightly."
+      ],
+      "test": "stage10 test_tilde_code_fence_is_stripped_like_backticks",
+      "minimumLength": "none",
+      "source": "stage10"
+    },
+    {
+      "form": "what redact_secrets masks in the prompt is withheld",
+      "formParts": [
+        {
+          "code": false,
+          "text": "what"
+        },
+        {
+          "code": true,
+          "text": "redact_secrets"
+        },
+        {
+          "code": false,
+          "text": "masks in the prompt is withheld"
+        }
+      ],
+      "examples": [
+        "Trail Tracker uses token=violet94&filter[a]=1 for search",
+        "password:\\n\\n  amber22",
+        "Trail Tracker key Xq7Lp2Zx9Wv4Nb6Mc1Rt8Ys3Ud5Ke0Jf2Gh4 rotates weekly",
+        "secret: \"hunter22x\""
+      ],
+      "test": "stage10 test_every_value_redact_secrets_masks_in_the_prompt_is_withheld",
+      "minimumLength": "the Xq7Lp2… key example only: 32+ base64 characters with an upper-case letter, a lower-case letter and a digit; the other examples: none",
+      "source": "stage10"
+    },
+    {
+      "form": "a queued error message is scrubbed",
+      "formParts": [
+        {
+          "code": false,
+          "text": "a queued error message is scrubbed"
+        }
+      ],
+      "examples": [
+        "the stage-9 fuzz combinations with invalid model output"
+      ],
+      "test": "stage9 test_fuzz9_matrix_never_leaks_and_really_writes_the_queue",
+      "minimumLength": "none; no literal input, so not part of the substitution check",
+      "source": "stage9"
+    }
+  ],
+  "knownGaps": [
+    {
+      "text": "A question without \"?\" (\"what should I name my app\") is not treated as a question, so a task read out of it can still be stored.",
+      "children": []
+    },
+    {
+      "text": "Other question shapes slip through: \"Which is better, Vue or React Native?\" names a multi-word Title Case name and reaches the model; an impersonal question about your project that starts like a definition (\"What is Trail Tracker's next milestone?\") is dropped.",
+      "children": []
+    },
+    {
+      "text": "\"We ...\" at the start of an indented line after a shell prompt is dropped unless the line names a multi-word Title Case name (\"We moved it to Go\" is dropped).",
+      "children": []
+    },
+    {
+      "text": "A prose line ending in a space and a backslash is dropped with the next line.",
+      "children": []
+    },
+    {
+      "text": "Non-indented tool output after a $ prompt is dropped only when it matches a known pattern (git, Go panics, log levels, source locations); other output lines reach the model.",
+      "children": []
+    },
+    {
+      "text": "The secret-talk rule is pattern-based. It still drops some honest facts (\"the user's JWT tokens expire hourly\" reads as owning a token; \"CSRF_TOKEN is set per request\" names a credential variable).",
+      "children": []
+    },
+    {
+      "text": "Masking a value to the end of its clause can over-mask: in \"my password is hunter2 for Trail Tracker\" the words \"for Trail Tracker\" are masked too. The model never sees them, and the post-filter withholds them, so a Trail Tracker node from that message is lost (measured by test_over_masking_loss_is_counted_not_silent and a strict xfail). The drop is counted in the extraction result's dropped total, not itemised. If the name appears anywhere else in the message, the node is kept.",
+      "children": []
+    },
+    {
+      "text": "Secret masking, what it covers. Verified forms only: the exact examples in Handled forms (tested), with only the secret value changed to another value of the same kind, at least the row's minimum length and within its case limit. A form that is not in that table is not covered, even if it looks similar.",
+      "children": []
+    },
+    {
+      "text": "What \"one rule set\" means, exactly. The extraction filter's own patterns (quality.credential_spans) drive the prompt mask, the withheld values and the node filter. The extraction prompt then also goes through redact_secrets (redact.py, unchanged). Since stage 10, every substring redact_secrets masks in that prompt, meaning in clean_message(text) and in the masked text before clean_message drops lines, is added to the withheld values. They are found by comparing the text before and after redact_secrets. Not unioned: what redact_secrets would mask in the raw text, which is not what the model sees (for example \"hibiscus44&v=1\" in \"?api_key=hibiscus44&v=1\", where the prompt already shows \"?api_key=[REDACTED]&v=1\"). The node filter itself checks only the extraction filter's patterns plus find_secrets, not every redact_secrets rule. A queued error message is scrubbed of withheld values before it is written to memory_queue.",
+      "children": []
+    },
+    {
+      "text": "What the fuzz tests scan, exactly. Counts were measured with len(fuzz_cases()), len(fuzz9_cases()), len(fuzz10_cases()) and len(fuzz11_cases()) and match what each test prints under pytest -s. The stage-8 and stage-9 tests take their labels from the label list, so their size grows with it. (The stage-9 docs said 64,680 for the stage-8 test; that was computed by hand with a wrong label count. The measured count then was 62,720.)",
+      "children": [
+        "Stage 8 (test_extraction_stage8.py): 70,560 combinations (36 labels x 0-6 filler words x 7 connectors x 5 value shapes x 8 message shapes). It checks the extraction prompt, the stored nodes and every file under each combination's own temporary home and database (memory.db, -wal, -shm). Its model always returns valid output, so it never writes memory_queue.",
+        "Stage 9 (test_extraction_stage9.py): 20,032 combinations (36 labels x 13 connectors x 5 Unicode variants x 8 message shapes = 18,720, the 5 value shapes taken in turn rather than as a factor; plus 36 labels x 4 JSON / dict / nested JSON / URL query forms x 8 shapes = 1,152; plus 4 URL schemes x 5 value shapes x 8 shapes = 160). Every third combination gets invalid output, so 5,334 really write memory_queue, and every file under the home is scanned.",
+        "Stage 10 (test_extraction_stage10.py): 5,769 combinations (36 labels x 16 quoted, wrapped, YAML, Markdown, query and with/using families x 9 message shapes including a ~~~ fence = 5,184; plus 13 curl, CLI, login and token families x 5 value shapes x 9 shapes = 585). 1,923 really write memory_queue. For token shapes it scans for the whole token.",
+        "Stage 11 (test_extraction_stage11.py): 5,391 combinations (36 labels x 14 families: nested ( ) [ ] < > { }, wrapped labels before filler, with/using + quoted value, changed ... to, 's / as, XML, YAML |2, x 9 message shapes = 4,536; plus 19 curl, CLI, env-name, login, JSON list / Authorization, Basic and token families x 5 value shapes x 9 shapes = 855). 1,797 really write memory_queue.",
+        "Stages 12 and 13 add no fuzz test, only exact tests. Stage 12: each of its 11 cases (len(C_CASES)) checks the exact mask_credentials output, the withheld set and the prompt, and runs a hostile model once with valid and once with queued output, scanning the stored nodes, memory.db and memory_queue; its 6 false positives (len(C_FALSE_POSITIVES)) only check mask_credentials(text) == text and are not run through extraction. Stage 13: the same for its 11 cases (len(A_CASES)) and 4 false positives (len(A_FALSE_POSITIVES)), plus one test that runs clean_extraction and keeps a node holding the ordinary short word \"frag\". The four fuzz counts above were measured again after stage 13 and did not change.",
+        "All four report 0 leaks. None creates a session log: extraction never writes one, and session logs belong to the working layer (gap 3 below). Before each stage, its own matrix leaked on the code it replaced: stage 9's in 5,261 of 7,336 combinations, stage 10's in 4,063 of 5,193 (on 98f6829, 32 labels), stage 11's in 4,562 of 5,391 (on 0e057e4)."
+      ]
+    },
+    {
+      "text": "Still not handled after stage 13 (can store a secret). All checked by running them, none in the test suite as a passing case:",
+      "children": [
+        "a value split across two lines (\"my password is crim\" / \"son42\");",
+        "a value before its label (\"crimson42 is my password\");",
+        "more than 6 filler words (\"the password for a b c d e f g is x\");",
+        "a comma, colon or sentence end inside the filler (\"the password, for prod, is x\");",
+        "a comma in an unquoted value (\"password: elm51x,elm52x\" masks only \"elm51x\"), and a quote escaped by doubling instead of a backslash (\"'it''s elm53x'\");",
+        "a label directly followed by manager, limit, count, budget, window or policy (\"the password policy is hunter2\");",
+        "labels that are not listed, such as \"masterphrase\", and labels in other languages that are not listed (\"la clave es pino42\", \"das Kennwort ist tanne42\");",
+        "connectors other than the ones in the table above (for example \"la clave es x\" uses \"es\", which is not a connector);",
+        "a wrapper nested deeper than 3 levels (\"(a(b(c(deep991))))\");",
+        "after a glued upper-case name, an unquoted value with a space (\"PGPASSWORD=blue sky42\": only \"blue\" is masked);",
+        "\"<label>'s <value>\" and \"<label> as <value>\" with a letters-only value (\"the password's swordfish\");",
+        "an unquoted item in a JSON-like list ('[\"x1y2z3\", unquoted993]');",
+        "\"with password swordfish\" (letters only: not masked, so that \"with password protection\" stays);",
+        "mysql -p PASS with a space (mysql reads that as a prompt, so it is not masked); every cookie after the first in -b \"a=x; b=y\"; every line of a YAML block scalar after the first;",
+        "tokens that mix / and - so that no run of 32 base64 characters remains (\"Ab3dEf7gHi9jKl1m/No3p-Qr5sTu7vWx9yZa1bCd3eFg\");",
+        "curl -H header forms are not in the test suite. Three ad-hoc probes were masked (X-Api-Key:, Authorization: Token, X-Auth-Token:); other header names were not tested;",
+        "spaced-out letters (\"p a s s w o r d: birch42\");",
+        "lookalike letters outside the small Cyrillic map (Greek ο in \"pοssword\").",
+        "None of the third review's 14 inputs is still open: all are in the table above (stage 11)."
+      ]
+    },
+    {
+      "text": "Fourth review: variants of verified shapes that are not verified themselves. Each was run on 236d2a3 through the real extraction path (a hostile scripted model, once with valid output and once with invalid output so the session is queued, every file under the home scanned), and each still reaches the prompt or a stored node, memory.db and memory_queue. None of them is in the verified table:",
+      "children": [
+        "a blank line after a word connector: \"The password is\\n\\n jasper888\" (word connectors allow only 1 newline);",
+        "a space after ==: \"My pwd == osprey223\";",
+        "Markdown italics with underscores: \"_Password_: wren101\";",
+        "blob= followed by base64 containing / + = (\"blob=Ab3dEf7gHi9j/Kl1mNo3pQ+r5sTu7vWx9yZ==\");",
+        "(fixed in stage 13, no longer a gap) base64 with single = padding after a label and no connector: \"My api key for prod YWRtaW46cGFzc3dvcmQ= works.\" and \"My token YWRtaW46cGFzc3dvcmQ= works.\" (YWRtaW46cGFzc3dvcmQ= is base64 of \"admin:password\"). The = padding was read as the connector; both now mask only the token (rerun through the real path on the stage 13 code);",
+        "quoted base64 after a label: 'My token \"ZGVwbG95OnNlY3JldA==\" is active.';",
+        "redis-cli -a attached: \"redis-cli -a'macaw215'\" and \"redis-cli -atoucan326\";",
+        "a backticked label before to: \"I set the \\password\\ to almond762\";",
+        "a quoted value after as or 's: 'Use the token as \"filbert107\"', \"The password's 'chestnut218'\";",
+        "an underscore earlier in a glued name: \"export PROD_PGPASSWORD=buzzard763\";",
+        "a JSON list under \"secrets\" spread over several lines;",
+        "XML with attributes or with the value on its own line: '<password type=\"prod\">plover639</password>', \"<password>\\n puffin740\\n</password>\", and CDATA (\"<password><![CDATA[lapwing962]]></password>\");",
+        "a quoted Basic token: 'Uses Basic \"YWRtaW5AbG9jYWw6c2VjcmV0\"';",
+        "curl with a single-quoted password only: \"curl -u admin:'sable436'\";",
+        "a modifier word before the label in \"reset / changed ... to\": \"I reset the staging password to 'walnut540'\", 'I changed prod password to \"dewberry435\"';",
+        "JSON Authorization with a scheme other than Bearer, Basic or Token: '{\"Authorization\": \"ApiKey tamarind982\"}';",
+        "a comment after a YAML block indicator: \"password: | # prod\";",
+        "\"their\" or \"your\" before the label after with / using: 'Connect with their password \"tayberry324\"' (only the, a, an, my, our are allowed)."
+      ]
+    },
+    {
+      "text": "Short token-shaped values. Short token-shaped values below a pattern's minimum length are not masked (for example glpat-7sd5, whsec_rn6b, a 3-character padded base64): token shapes are recognized by length, so real tokens are not affected, but a short secret in these forms is not covered. The minimums are in the table's \"minimum length\" column. The substitution check above did not re-test values with special characters or spaces.",
+      "children": []
+    },
+    {
+      "text": "Single-= base64 in one case after a label (stage 15). A value with one = of padding that is all lower-case, all upper-case, or capitalised only at the start, directly after a label and followed by more words or another line, is not masked: its = is read as the connector and the words after it are masked instead. Checked: \"my token enp6eno= for Trail Tracker\", \"my token enp6enp6eno= for Trail Tracker\", \"my token QUFBQUE= for Trail Tracker\", \"my token Abcdefg= for Trail Tracker\" and \"my token enp6eno=\" followed by a line \"Trail Tracker deploys nightly.\" all leak to the prompt, a stored node and memory_queue, and so do 8-, 12- and 20-character values of each case (tests/memory/test_extraction_stage15.py, 33 strict xfails). Shorter one-case values (4 to 6 characters before the =, \"my token abcd= for Trail Tracker\") leak the same way. Not affected: == padding in any case, a single = at the end of the message, mixed-case values (row 21), and a value after a real connector (\"api key is enp6eno= ...\", \"secret: ...\", \"password is ...\"). The fix that was tried, treating 7+ base64 characters plus a single = directly after a label as the secret, also captured real filler words (\"api key staging= x\") and made the stage 9 fuzz leak in 64 combinations, so it was not applied.",
+      "children": []
+    },
+    {
+      "text": "Fifth review: more variants, not in the verified table. Each was run on the stage 13 code through the real extraction path (hostile scripted model, valid and queued output, every file scanned). Still leak (prompt or stored node, memory.db and memory_queue):",
+      "children": [
+        "a .netrc line: \"machine github.com login bot password primrose446\";",
+        "a Markdown table cell: \"| prod | password | hibiscus921 |\";",
+        "the label as a prefix of the name: \"SECRET_VALUE=lavender743\";",
+        "curl -H \"Authorization: Digest username=admin, response=mimosa654\";",
+        "an unknown scheme: \"Authorization: CustomScheme narcissus565\";",
+        "mongosh -u admin -p petunia387;",
+        "three or more words between the connector and a quoted value: 'My password is very very really \"quince332\" for CI.' (one or two words are verified);",
+        "password := \"amaryllis554\";",
+        "a Korean label: \"비밀번호: begonia463\";",
+        "a JSON \\u escape inside a value: '{\"password\": \"\\u006cilac831\"}'. The value as written is masked and withheld, but its decoded form \"lilac831\" is not withheld, so a model that decodes the escape can store it;",
+        "a quoted value that continues on the next line ('password: \"line1' then a line ' bluebell882\"'). This input was not in the list before stage 13; the nearest earlier entry, \"a value split across two lines\", is kept above."
+      ]
+    },
+    {
+      "text": "Why best-effort, and why only exact forms are claimed. Independent reviewers invented new bypasses quickly: the second review found about 45 leaks in 56 new inputs, and each later round found about 30 new variants of shapes that were already handled (the fourth review found 21 leaks in forms the docs claimed). That is why this is a best-effort filter and not a guarantee, and why since stage 12 only the exact verified examples in Handled forms (tested) are claimed.",
+      "children": []
+    },
+    {
+      "text": "Recall cost (security over recall). A sentence that matches the rule (a label, a connector and a value) is masked and its node dropped. The longer label list makes this more common: \"the token is valid for one hour\", \"the key point of Trail Tracker is speed\", \"the pass is valid until June\", \"auth is handled by Auth0\", \"the cookie banner is ugly\" and \"I set the token to expire hourly\" all lose their value, and a glued upper-case name ending in KEY masks any value (\"MONKEY=banana\"). A value after =, and a value on a later line after :, is masked to the end of its clause.",
+      "children": []
+    },
+    {
+      "text": "A credential variable whose name is not on the suffix list, such as LUMEN_KEY, is stored as a name (\"Rotate LUMEN_KEY for Lumen Budget\"); its value is never stored. This is the price of keeping PRIMARY_KEY, and it is why the held-out control group dropped in round 3 (see the table).",
+      "children": []
+    },
+    {
+      "text": "Gap 3 (open; needs a decision). Stage 10 added every substring redact_secrets masks in the extraction prompt to the withheld values, without changing redact.py. Gap 3 itself is not fixed: the redaction layer (room/memory/redact.py, used by capture and the working layer) only catches known token shapes and label=value pairs with 6+ characters, so a prefix-less password (\"the password is swordfish\") in a working-layer transcript is not redacted there, and working_search (also through the room MCP server) can return it. The masking above applies only on the way into the long-term graph.",
+      "children": []
+    },
+    {
+      "text": "A fact before a question is kept only when a comma separates it from the question and it opens with a factual marker. These lose a real fact (checked): \"I prefer Rust so which parser should I pick?\" (no comma), \"I joined Corvid Analytics last week, what should I read?\" (no marker), \"Since we were acquired by Stripe, what changes?\" (\"were\" counts as hypothetical), and \"Since I moved to Go if that matters, which linter?\" (\"if\" anywhere in the clause). When unsure, nothing is kept.",
+      "children": []
+    },
+    {
+      "text": "The hypothetical check is a word list, so it also catches plain questions that use \"could\" or \"would\": \"Which database could Harbor Log use?\" and \"Would Harbor Log work on Fly.io?\" no longer keep the Harbor Log project (checked; a missing fact, not a false one).",
+      "children": []
+    },
+    {
+      "text": "A hypothetical written without \"?\" is not seen as a question: \"If I build Harbor Log\" can still store a Harbor Log project (checked).",
+      "children": []
+    },
+    {
+      "text": "An impersonal question that names your project with a single word (\"Is Postgres right for Ledgerly?\") is dropped: without knowing your projects, \"Ledgerly\" looks like \"Python\". Only multi-word Title Case names pass.",
+      "children": []
+    },
+    {
+      "text": "\"Describe X?\" and \"Tell me about X?\" are not recognised as questions at all, so they reach the model, which is told not to record general knowledge.",
+      "children": []
+    }
+  ],
+  "testCounts": {
+    "line": "The suite has 1,217 tests (counted with pytest --collect-only; 1,181 pass and 36 are expected failures)",
+    "testsText": "1,217",
+    "tests": 1217,
+    "passed": 1181,
+    "xfailed": 36
+  }
+}

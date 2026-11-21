@@ -636,6 +636,13 @@ interfaces. `cd ui && npm test` runs the UI tests, `npm run build` builds
 `ui/dist/`, and `npm run check:dist` lists every external URL string in the
 build (all are known library constants, never requested).
 
+Dashboard note (stage F5): Explorer and Privacy are now built too (the
+sentence above about placeholders is out of date). Explorer lists every node
+in a sortable, filterable table. The Privacy page is generated from
+`docs/MEMORY.md` by `cd ui && npm run privacy` (also run before every
+build); `npm run check:privacy` fails if the committed copy differs from the
+docs, and `npm run check:glow` re-measures the graph glow on screenshots.
+
 ### Presence
 
 See who is working right now (run it from a second terminal during `room ask`):

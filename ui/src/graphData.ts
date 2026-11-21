@@ -53,7 +53,7 @@ export const TYPE_COLORS: Readonly<Record<string, string>> = {
   decision: "#22d3ee",
   fact: "#60a5fa",
   task: "#fb923c",
-  document: "#cbd5e1",
+  document: "#8b9bb4",
   preference: "#e879f9",
   application: "#fbbf24",
   skill: "#34d399",

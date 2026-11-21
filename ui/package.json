@@ -6,8 +6,12 @@
   "description": "Local, read-only dashboard for the agent room memory (served by `room dashboard-api`).",
   "scripts": {
     "dev": "vite",
+    "privacy": "node scripts/build-privacy.mjs",
+    "prebuild": "node scripts/build-privacy.mjs",
     "build": "tsc --noEmit && vite build",
     "check:dist": "node scripts/check-dist.mjs",
+    "check:privacy": "node scripts/build-privacy.mjs --check",
+    "check:glow": "node scripts/measure-glow.mjs",
     "test": "vitest run",
     "preview": "vite preview"
   },

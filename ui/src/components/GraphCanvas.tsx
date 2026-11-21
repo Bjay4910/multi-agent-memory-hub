@@ -3,7 +3,7 @@
 
 import ForceGraph3D, { type ForceGraph3DInstance } from "3d-force-graph";
 import { useEffect, useRef, useState } from "react";
-import { Vector2 } from "three";
+import { Mesh, MeshLambertMaterial, SphereGeometry, Vector2 } from "three";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { BACKGROUND, type GLink, type GNode, type GraphData } from "../graphData";
 import { GRAPH_STYLE, fitPadding, selectedVal } from "../graphStyle";
@@ -65,6 +65,8 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
   // create once
   useEffect(() => {
     const el = host.current!;
+    const geometries = new Map<number, SphereGeometry>();
+    const materials = new Map<string, MeshLambertMaterial>();
     let g: ForceGraph3DInstance;
     try {
       g = new ForceGraph3D(el, { controlType: "orbit" });
@@ -84,8 +86,21 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
       .cooldownTime(GRAPH_STYLE.cooldownTimeMs)
       .nodeRelSize(GRAPH_STYLE.nodeRelSize)
       .nodeVal((n) => ((n as FGNode).id === selected.current ? selectedVal((n as FGNode).val) : (n as FGNode).val))
-      .nodeOpacity(0.95)
-      .nodeResolution(18)
+      // own meshes, so the material can carry a mild emissive tint of the node's type colour
+      .nodeThreeObject((n) => {
+        const node = n as FGNode;
+        const val = node.id === selected.current ? selectedVal(node.val) : node.val;
+        const radius = Math.round(Math.cbrt(val) * GRAPH_STYLE.nodeRelSize * 4) / 4;
+        let geometry = geometries.get(radius);
+        if (!geometry) geometries.set(radius, (geometry = new SphereGeometry(radius, 20, 14)));
+        let material = materials.get(node.color);
+        if (!material) {
+          material = new MeshLambertMaterial({ color: node.color, emissive: node.color,
+                                               emissiveIntensity: GRAPH_STYLE.emissiveIntensity, transparent: true, opacity: 0.95 });
+          materials.set(node.color, material);
+        }
+        return new Mesh(geometry, material);
+      })
       .linkColor(() => "#8b93ff")
       .linkOpacity(0.18)
       .linkWidth(0)
@@ -153,6 +168,8 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
       el.removeEventListener("wheel", pause);
       el.removeEventListener("pointermove", onMove);
       g._destructor();
+      geometries.forEach((x) => x.dispose());
+      materials.forEach((x) => x.dispose());
       graph.current = null;
       el.replaceChildren();
     };
@@ -175,7 +192,7 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
   useEffect(() => {
     selected.current = selectedId;
     const g = graph.current;
-    if (g) g.nodeVal(g.nodeVal());
+    if (g) g.nodeThreeObject(g.nodeThreeObject());
   }, [selectedId]);
 
   useEffect(() => {

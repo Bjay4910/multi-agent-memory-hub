@@ -55,6 +55,15 @@ export interface Presence {
   age_seconds: number | null;
 }
 
+export interface NodeRow {
+  id: number;
+  type: string;
+  name: string;
+  status: "active" | "superseded";
+  confidence: number;
+  updated_at: string;
+}
+
 export interface Stats {
   nodes_by_type: Record<string, number>;
   nodes_active: number;
@@ -73,6 +82,7 @@ export const api = {
     getJson<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q.slice(0, 200))}`, signal),
   stats: (signal?: AbortSignal) => getJson<Stats>("/api/stats", signal),
   agents: (signal?: AbortSignal) => getJson<{ agents: AgentStats[] }>("/api/agents", signal),
+  nodes: (query: string, signal?: AbortSignal) => getJson<{ total: number; items: NodeRow[] }>(query, signal),
   sessions: (limit = 200, signal?: AbortSignal) =>
     getJson<{ sessions: SessionSummary[] }>(`/api/sessions?limit=${Math.trunc(limit)}`, signal),
   session: (id: string, signal?: AbortSignal) => getJson<SessionDetail>(`/api/session/${encodeURIComponent(id)}`, signal),
