@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Vector2 } from "three";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { BACKGROUND, type GLink, type GNode, type GraphData } from "../graphData";
+import { GRAPH_STYLE, fitPadding, selectedVal } from "../graphStyle";
 
 type FGNode = GNode & { x?: number; y?: number; z?: number };
 type FGLink = Omit<GLink, "source" | "target"> & { source: number | FGNode; target: number | FGNode };
@@ -59,6 +60,7 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
   handlers.current = { onNodeClick, onFailure };
   const [hover, setHover] = useState<{ name: string; type: string } | null>(null);
   const tip = useRef<HTMLDivElement>(null);
+  const fitPending = useRef(true);
 
   // create once
   useEffect(() => {
@@ -78,7 +80,10 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
       .nodeLabel(() => "")
       .linkLabel(() => "")
       .nodeColor((n) => (n as FGNode).color)
-      .nodeVal((n) => ((n as FGNode).id === selected.current ? (n as FGNode).val * 1.5 + 2 : (n as FGNode).val))
+      .warmupTicks(GRAPH_STYLE.warmupTicks)
+      .cooldownTime(GRAPH_STYLE.cooldownTimeMs)
+      .nodeRelSize(GRAPH_STYLE.nodeRelSize)
+      .nodeVal((n) => ((n as FGNode).id === selected.current ? selectedVal((n as FGNode).val) : (n as FGNode).val))
       .nodeOpacity(0.95)
       .nodeResolution(18)
       .linkColor(() => "#8b93ff")
@@ -102,10 +107,16 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
         hoverLinks.current = new Set(l ? [l as FGLink] : []);
         g.linkDirectionalParticles(g.linkDirectionalParticles());
       })
-      .onNodeClick((n) => handlers.current.onNodeClick((n as FGNode).id));
+      .onNodeClick((n) => handlers.current.onNodeClick((n as FGNode).id))
+      .onEngineStop(() => {
+        // after a new data set settles, frame the cluster so it fills about two thirds of the canvas
+        if (!fitPending.current) return;
+        fitPending.current = false;
+        g.zoomToFit(motion.current.reduced ? 0 : 700, fitPadding(el.clientWidth, el.clientHeight));
+      });
 
     const size = new Vector2(el.clientWidth, el.clientHeight);
-    const pass = new UnrealBloomPass(size, 0.6, 0.45, 0.18);
+    const pass = new UnrealBloomPass(size, GRAPH_STYLE.bloomStrength, GRAPH_STYLE.bloomRadius, GRAPH_STYLE.bloomThreshold);
     g.postProcessingComposer().addPass(pass);
     bloomPass.current = pass;
 
@@ -157,6 +168,7 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
       return prev ? { ...n, x: prev.x, y: prev.y, z: prev.z } : { ...n };
     });
     hoverLinks.current = new Set();
+    fitPending.current = old.size === 0 || data.nodes.length !== old.size + 1; // not for a single added node
     g.graphData({ nodes, links: data.links.map((l) => ({ ...l })) });
   }, [data]);
 
@@ -193,6 +205,7 @@ export function GraphCanvas({ data, selectedId, bloom, reducedMotion, focus, onN
       const { x = 0, y = 0, z = 0 } = node;
       const ratio = 1 + 160 / (Math.hypot(x, y, z) || 1);
       (g.controls() as unknown as OrbitLike).autoRotate = false;
+      fitPending.current = false;
       g.cameraPosition({ x: x * ratio, y: y * ratio, z: (z || 1) * ratio }, { x, y, z }, reducedMotion ? 0 : 1200);
     };
     fly();

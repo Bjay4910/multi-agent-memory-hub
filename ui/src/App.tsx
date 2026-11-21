@@ -5,6 +5,9 @@ import { api } from "./api";
 import { HomePage } from "./components/HomePage";
 import { ModeBadge, type Mode } from "./components/ModeBadge";
 import { Placeholder } from "./components/Placeholder";
+import { RoomPage } from "./components/RoomPage";
+import { TimelinePage } from "./components/TimelinePage";
+import { nodeIdFromParams, parseHash, type Location } from "./route";
 
 // three.js is large: load it only when the graph page is opened
 const GraphPage = lazy(() => import("./components/GraphPage").then((m) => ({ default: m.GraphPage })));
@@ -19,17 +22,19 @@ export const ROUTES = [
 ] as const;
 type Route = (typeof ROUTES)[number]["path"];
 
-function currentRoute(): Route {
-  const hash = window.location.hash.replace(/^#\/?/, "");
-  return (ROUTES.find((r) => r.path === (hash === "home" ? "" : hash))?.path ?? "") as Route;
+function currentLocation(): Location & { route: Route } {
+  const loc = parseHash(window.location.hash);
+  const name = loc.route === "home" ? "" : loc.route;
+  return { ...loc, route: (ROUTES.find((r) => r.path === name)?.path ?? "") as Route };
 }
 
 export function App() {
-  const [route, setRoute] = useState<Route>(currentRoute);
+  const [loc, setLoc] = useState(currentLocation);
+  const route = loc.route;
   const [mode, setMode] = useState<Mode>({ kind: "checking" });
 
   useEffect(() => {
-    const onHash = () => setRoute(currentRoute());
+    const onHash = () => setLoc(currentLocation());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -61,9 +66,11 @@ export function App() {
       <main className="main">
         {route === "" ? <HomePage mode={mode} /> : route === "graph" ? (
           <Suspense fallback={<div className="center-state"><div className="spinner" />Loading the graph…</div>}>
-            <GraphPage />
+            <GraphPage initialNodeId={nodeIdFromParams(loc.params)} />
           </Suspense>
-        ) : <Placeholder title={label} />}
+        ) : route === "room" ? <RoomPage />
+          : route === "timeline" ? <TimelinePage anchor={loc.anchor} />
+          : <Placeholder title={label} />}
       </main>
     </div>
   );

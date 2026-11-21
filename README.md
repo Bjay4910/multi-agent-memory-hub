@@ -603,8 +603,10 @@ Keyword search has no notion of meaning; see the limits below.
 A read-only web dashboard for memory, served only on your machine. It has two
 parts: `room dashboard-api` (a small JSON API on `127.0.0.1:8766`, read-only,
 GET only) and the page in `ui/` (Vite + React + three.js, everything bundled;
-it makes no requests to other hosts). Only the Memory Graph view is built so
-far.
+it makes no requests to other hosts). Built so far: Home, Memory Graph, The
+Room (who is working, from presence) and Timeline (sessions by day); Explorer
+and Privacy are placeholders. With `--demo`, The Room shows a fixed sample of
+presence (marked as such), because the demo home has no real agents.
 
 With made-up demo data (nothing from your real memory is read). `--demo`
 serves a richer fictional set of about 120 facts over three months;

@@ -12,7 +12,7 @@ import { NodePanel } from "./NodePanel";
 
 type Load = { state: "loading" } | { state: "ready" } | { state: "error"; error: ApiError };
 
-export function GraphPage() {
+export function GraphPage({ initialNodeId = null }: { initialNodeId?: number | null } = {}) {
   const reducedMotion = useReducedMotion();
   const [webgl, setWebgl] = useState(() => hasWebGL());
   const [filters, setFilters] = useState<FilterState>(initialFilters);
@@ -76,15 +76,15 @@ export function GraphPage() {
     return () => { window.clearTimeout(timer); ctrl.abort(); };
   }, [query]);
 
-  async function chooseResult(r: SearchResult) {
-    setResults([]);
-    setQuery("");
+  // Focus a node by id (search result or /graph?node=<id>): fly to it if loaded, add it through its loaded
+  // neighbors, or say it is outside the loaded graph (planFocus / applyFocusPlan).
+  const focusById = useCallback(async (id: number) => {
     setNotice(null);
-    let plan = planFocus(r.id, graphRef.current);
+    let plan = planFocus(id, graphRef.current);
     if (plan.kind === "need-detail") {
       try {
-        const d = await api.node(r.id);
-        plan = planFocus(r.id, graphRef.current, d);
+        const d = await api.node(id);
+        plan = planFocus(id, graphRef.current, d);
         setDetail(d);
       } catch (err) {
         setNotice((err as ApiError).message);
@@ -92,19 +92,34 @@ export function GraphPage() {
       }
     }
     if (plan.kind === "add") {
-      setGraph((g) => applyFocusPlan(g, plan));
-      setNotice(`"${plan.node.name}" was outside the loaded view; it is shown with its ${plan.links.length} loaded link${plan.links.length === 1 ? "" : "s"}.`);
-      setSelectedId(r.id);
-      requestFocus(r.id);
+      const added = plan;
+      setGraph((g) => applyFocusPlan(g, added));
+      setNotice(`"${added.node.name}" was outside the loaded view; it is shown with its ${added.links.length} loaded link${added.links.length === 1 ? "" : "s"}.`);
+      setSelectedId(id);
+      requestFocus(id);
       return;
     }
     if (plan.kind === "outside") {
-      setSelectedId(r.id);
+      setSelectedId(id);
       setNotice(`"${plan.name}" is not in the loaded graph and none of its links are, so it is not drawn. Its details are in the panel.`);
       return;
     }
-    openNode(r.id);
+    openNode(id);
+  }, [openNode]);
+
+  function chooseResult(r: SearchResult) {
+    setResults([]);
+    setQuery("");
+    void focusById(r.id);
   }
+
+  // /graph?node=<id>: focus it once the graph has loaded
+  const handledInitial = useRef<number | null>(null);
+  useEffect(() => {
+    if (initialNodeId === null || load.state !== "ready" || handledInitial.current === initialNodeId) return;
+    handledInitial.current = initialNodeId;
+    void focusById(initialNodeId);
+  }, [initialNodeId, load.state, focusById]);
 
   const legend = legendFor(graph.nodes);
   const filtered = filters.types.length > 0;
@@ -161,7 +176,7 @@ export function GraphPage() {
             <ul className="results glass" role="listbox">
               {results.map((r) => (
                 <li key={r.id}>
-                  <button type="button" onClick={() => void chooseResult(r)}>
+                  <button type="button" onClick={() => chooseResult(r)}>
                     <span className="dot" style={{ background: colorForType(r.type) }} />
                     <span className="result-name">{r.name}</span>
                     <span className="muted">{r.type}{r.status === "superseded" ? " · superseded" : ""}</span>

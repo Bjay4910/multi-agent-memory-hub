@@ -27,6 +27,7 @@ import stat
 import sys
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -45,6 +46,11 @@ _ALLOWED_HOSTS = ("localhost", "127.0.0.1")
 _STATUSES = ("active", "superseded", "all")
 _TYPE = re.compile(r"^[a-z][a-z_]{0,31}$")
 _DIGITS = re.compile(r"^[0-9]{1,19}$")
+_SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+DEFAULT_SESSIONS_LIMIT = 50
+MAX_SESSIONS_LIMIT = 200
+MAX_SESSION_NODES = 200
+MAX_SESSION_EDGES = 400
 
 
 class BadRequest(ValueError):
@@ -80,6 +86,7 @@ class Config:
     presence_dir: Path
     mode: str  # "local" or "demo"
     port: int
+    demo_presence: bool = False  # demo mode only: serve a fixed, synthetic presence list
 
 
 def open_memory(db_path: Path) -> ReadOnlyMemory:
@@ -180,7 +187,17 @@ def search(cfg: Config, params: dict) -> dict:
                          "confidence": n.confidence, "relevance": round(score, 4)} for n, score in results]}
 
 
+# Shown only in demo mode with demo_presence=True (`room dashboard-api --demo`), so The Room page has something to
+# show. Marked "synthetic" in the response; local mode never returns it.
+DEMO_PRESENCE = (("claude", "working", 12), ("gemini", "idle", 140), ("hermes", "offline", 2700))
+
+
 def presence(cfg: Config, params: dict) -> dict:
+    if cfg.mode == "demo" and cfg.demo_presence:
+        now = datetime.now(timezone.utc)
+        return {"synthetic": True, "agents": [
+            {"agent": a, "effective_status": status, "age_seconds": float(age),
+             "updated_at": (now - timedelta(seconds=age)).isoformat()} for a, status, age in DEMO_PRESENCE]}
     return {"agents": [{"agent": e.agent, "effective_status": e.effective_status(),
                         "age_seconds": round(e.age_seconds(), 1), "updated_at": e.updated_at.isoformat()}
                        for e in read_presence(cfg.presence_dir)]}
@@ -210,8 +227,53 @@ def stats(cfg: Config, params: dict) -> dict:
     }
 
 
+# -- sessions and agents: read-only SELECTs over provenance (the store has no method for these) -------------------
+
+_SESSION_AGENT = ("(SELECT p2.agent FROM provenance p2 WHERE p2.session_id = p.session_id "
+                  "GROUP BY p2.agent ORDER BY COUNT(*) DESC, p2.agent LIMIT 1)")
+
+
+def sessions(cfg: Config, params: dict) -> dict:
+    limit_text = _one(params, "limit")
+    limit = DEFAULT_SESSIONS_LIMIT if limit_text is None else _positive_int(limit_text, "limit")
+    limit = min(limit, MAX_SESSIONS_LIMIT)
+    with open_memory(cfg.db_path) as store:
+        rows = store.conn.execute(
+            f"SELECT p.session_id, {_SESSION_AGENT} AS agent, MIN(p.ts) AS first_ts, MAX(p.ts) AS last_ts, "
+            "COUNT(DISTINCT p.node_id) AS nodes_added, COUNT(DISTINCT p.edge_id) AS edges_added "
+            "FROM provenance p GROUP BY p.session_id ORDER BY last_ts DESC, p.session_id DESC LIMIT ?",
+            (limit,)).fetchall()
+    return {"sessions": [dict(r) for r in rows]}
+
+
+def session(cfg: Config, params: dict, session_id: str) -> dict:
+    with open_memory(cfg.db_path) as store:
+        head = store.conn.execute(
+            f"SELECT p.session_id, {_SESSION_AGENT} AS agent, MIN(p.ts) AS first_ts, MAX(p.ts) AS last_ts "
+            "FROM provenance p WHERE p.session_id = ? GROUP BY p.session_id", (session_id,)).fetchone()
+        if head is None:
+            raise NotFound("no session with that id")
+        nodes = store.conn.execute(
+            "SELECT DISTINCT n.id, n.name, n.type, n.status FROM provenance p JOIN nodes n ON n.id = p.node_id "
+            "WHERE p.session_id = ? ORDER BY n.id LIMIT ?", (session_id, MAX_SESSION_NODES)).fetchall()
+        edges = store.conn.execute(
+            "SELECT DISTINCT e.src, e.dst, e.relation FROM provenance p JOIN edges e ON e.id = p.edge_id "
+            "WHERE p.session_id = ? ORDER BY e.id LIMIT ?", (session_id, MAX_SESSION_EDGES)).fetchall()
+    return {**dict(head), "nodes": [dict(n) for n in nodes], "edges": [dict(e) for e in edges]}
+
+
+def agents(cfg: Config, params: dict) -> dict:
+    with open_memory(cfg.db_path) as store:
+        rows = store.conn.execute(
+            "SELECT p.agent, COUNT(DISTINCT p.node_id) AS nodes_added, COUNT(DISTINCT p.session_id) AS sessions, "
+            "MAX(p.ts) AS last_ts, (SELECT p2.session_id FROM provenance p2 WHERE p2.agent = p.agent "
+            "ORDER BY p2.ts DESC, p2.id DESC LIMIT 1) AS last_session_id "
+            "FROM provenance p GROUP BY p.agent ORDER BY last_ts DESC, p.agent").fetchall()
+    return {"agents": [dict(r) for r in rows]}
+
+
 _ROUTES = {"/api/health": health, "/api/graph": graph, "/api/search": search, "/api/presence": presence,
-           "/api/stats": stats}
+           "/api/stats": stats, "/api/sessions": sessions, "/api/agents": agents}
 
 
 # -- HTTP ----------------------------------------------------------------------------------------------------------
@@ -294,6 +356,11 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             raise BadRequest("too many query parameters") from None
         path = parts.path
+        if path.startswith("/api/session/"):
+            sid = path[len("/api/session/"):]
+            if not _SESSION_ID.match(sid):
+                raise BadRequest("session id must be 1-200 letters, digits, '.', '_', ':' or '-'")
+            return session(self.config, params, sid)
         if path.startswith("/api/node/"):
             rest = path[len("/api/node/"):]
             return node(self.config, params, _positive_int(rest, "id"))
@@ -307,7 +374,7 @@ DEMO_SETS = ("small", "rich")
 
 
 def make_server(host: str, port: int, *, db_path: Path | None = None, presence_dir: Path | None = None,
-                mode: str = "local", demo_set: str = "small") -> ThreadingHTTPServer:
+                mode: str = "local", demo_set: str = "small", demo_presence: bool = False) -> ThreadingHTTPServer:
     """A server bound to 127.0.0.1 (any other ``host`` is refused); ``port`` 0 picks a free one.
 
     In demo mode without a ``db_path``, a new temp home is built with ``demo_set`` ("small", the default, or
@@ -318,6 +385,8 @@ def make_server(host: str, port: int, *, db_path: Path | None = None, presence_d
         raise ValueError(f"unknown mode {mode!r}")
     if demo_set not in DEMO_SETS:
         raise ValueError(f"unknown demo set {demo_set!r}; use one of {', '.join(DEMO_SETS)}")
+    if demo_presence and mode != "demo":
+        raise ValueError("synthetic presence is for demo mode only")
     if db_path is None:
         if mode != "demo":
             raise ValueError("db_path is required outside demo mode")
@@ -336,7 +405,7 @@ def make_server(host: str, port: int, *, db_path: Path | None = None, presence_d
             raise PortInUse(port) from None
         raise
     server.daemon_threads = True
-    config = Config(Path(db_path), Path(presence_dir), mode, server.server_address[1])
+    config = Config(Path(db_path), Path(presence_dir), mode, server.server_address[1], demo_presence)
     server.RequestHandlerClass = type("BoundHandler", (Handler,), {"config": config})
     return server
 
@@ -368,7 +437,7 @@ def serve(port: int = DEFAULT_PORT, demo: bool = False, host: str = BIND_HOST, d
         from ..memory.paths import memory_db_path
 
         db_path, presence_dir, mode = memory_db_path(), paths.presence_dir(), "local"
-    server = make_server(host, port, db_path=db_path, presence_dir=presence_dir, mode=mode)
+    server = make_server(host, port, db_path=db_path, presence_dir=presence_dir, mode=mode, demo_presence=demo)
     print(f"room dashboard API ({mode}) on http://{BIND_HOST}:{server.server_address[1]}/api/health "
           "(read-only; Ctrl-C to stop)", file=sys.stderr, flush=True)
     try:

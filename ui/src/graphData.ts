@@ -1,5 +1,7 @@
 // Pure transforms from /api/graph to what the 3D graph draws. No DOM, no network.
 
+import { GRAPH_STYLE } from "./graphStyle";
+
 export type NodeStatus = "active" | "superseded";
 
 export interface ApiGraphNode {
@@ -80,12 +82,9 @@ export function dimColor(hex: string, amount = 0.68): string {
   return `#${mix(r, br)}${mix(g, bg)}${mix(b, bb)}`;
 }
 
-const MAX_DEGREE_FOR_SIZE = 64;
-
-/** Node volume for 3d-force-graph's ``nodeVal``: 1 for no links, growing with degree, capped. */
+/** Node volume for 3d-force-graph's ``nodeVal``: 1 for no links, growing with degree, capped (GRAPH_STYLE). */
 export function nodeSize(degree: number): number {
-  const d = Math.min(Math.max(degree, 0), MAX_DEGREE_FOR_SIZE);
-  return 1 + d * 1.5;
+  return Math.min(1 + Math.max(degree, 0) * 1.2, GRAPH_STYLE.maxNodeVal);
 }
 
 export function toGNode(n: ApiGraphNode): GNode {

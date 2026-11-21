@@ -2,6 +2,8 @@
 
 import type { ApiGraph } from "./graphData";
 import type { NodeDetail } from "./focus";
+import type { AgentStats } from "./room";
+import type { SessionDetail, SessionSummary } from "./timeline";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -49,8 +51,8 @@ export interface SearchResult {
 
 export interface Presence {
   agent: string;
-  effective_status: "working" | "idle";
-  age_seconds: number;
+  effective_status: "working" | "idle" | "offline";
+  age_seconds: number | null;
 }
 
 export interface Stats {
@@ -66,8 +68,12 @@ export const api = {
   graph: (query: string, signal?: AbortSignal) => getJson<ApiGraph>(query, signal),
   node: (id: number, signal?: AbortSignal) =>
     getJson<NodeDetail>(`/api/node/${Math.trunc(id)}?neighbor_status=1`, signal),
-  presence: (signal?: AbortSignal) => getJson<{ agents: Presence[] }>("/api/presence", signal),
+  presence: (signal?: AbortSignal) => getJson<{ agents: Presence[]; synthetic?: boolean }>("/api/presence", signal),
   search: (q: string, signal?: AbortSignal) =>
     getJson<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q.slice(0, 200))}`, signal),
   stats: (signal?: AbortSignal) => getJson<Stats>("/api/stats", signal),
+  agents: (signal?: AbortSignal) => getJson<{ agents: AgentStats[] }>("/api/agents", signal),
+  sessions: (limit = 200, signal?: AbortSignal) =>
+    getJson<{ sessions: SessionSummary[] }>(`/api/sessions?limit=${Math.trunc(limit)}`, signal),
+  session: (id: string, signal?: AbortSignal) => getJson<SessionDetail>(`/api/session/${encodeURIComponent(id)}`, signal),
 };
