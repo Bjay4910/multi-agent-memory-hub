@@ -148,6 +148,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     gr = sub.add_parser("graph", help="export the memory graph as Mermaid (.md) and HTML")
     gr.add_argument("--out", type=Path, help="output path without extension (default: ~/.agent-room/exports/graph)")
+
+    da = sub.add_parser("dashboard-api", help="read-only JSON API over memory for the dashboard (127.0.0.1 only)")
+    da.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")
+    da.add_argument("--demo", action="store_true", help="serve the made-up demo dataset from a temp home instead")
     return parser
 
 
@@ -606,6 +610,12 @@ def cmd_capture(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard_api(args: argparse.Namespace) -> int:
+    from .web import api
+
+    return api.serve(args.port, args.demo)
+
+
 def cmd_mcp() -> int:
     from .mcp_server import serve
 
@@ -633,6 +643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "mcp": cmd_mcp,
         "working": lambda: cmd_working(args),
         "capture": lambda: cmd_capture(args),
+        "dashboard-api": lambda: cmd_dashboard_api(args),
     }
     try:
         return handlers[args.command]()
