@@ -176,12 +176,19 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    node, "Me" too), or when its name or summary is other secret talk; for "Me"
    only the summary is emptied for those. Secret talk is exactly one of:
    - a credential value: a label, then up to 6 filler words, then a
-     connector (`=`, `:`, `is`, `was`, `is now`, `set to`, `is set to`,
-     `equals`, `is equal to`), then a value that runs to the end of the clause
-     ("API_KEY=abcd1234", "pwd: orange", "the password is swordfish", "my
-     passphrase is blue sky mining", "The password for Harbor Log is
-     now42abc", "the password (for prod) is ...", "the token for harbor.log
-     is ..."); or `Authorization: ...` / `Bearer <value>`. A filler word holds
+     connector (`=`, `:`, `->`, `=>`, an em or en dash, `is`, `was`, `are`,
+     `is now`, `set to`, `is set to`, `equals`, `is equal to`, `will be`, or
+     是 / は; the value may start on the next line), then a value that runs to
+     the end of the clause, a quote, a closing bracket, or `&` before another
+     URL parameter ("API_KEY=abcd1234", "pwd: orange", "the password is
+     swordfish", "my passphrase is blue sky mining", "The password for Harbor
+     Log is now42abc", "the password (for prod) is ...", '{"password":
+     "x"}', "?api_key=x&v=1"); URL userinfo (`postgres://user:pass@host`,
+     masked whole); a 32+ character base64 token with mixed case and digits;
+     padded base64 after a label; or `Authorization: ...` / `Bearer <value>`
+     / `Basic <value>`. Matching runs on a normalized copy (NFKC, zero-width
+     characters removed, Unicode spaces, Cyrillic а е о р с х as Latin); the
+     original text is what gets masked. A filler word holds
      no `,` `;` `:` `=` `!` `?` and no `.` except inside a name. There is no
      status-word exception (stage 8): "The password is not-so-secret-42" and
      "the token is valid for one hour" are both masked; losing the second
@@ -308,6 +315,12 @@ stored one more useful node ("Deploy Okapi Notes to Fly.io"); that case was
 inspected only to explain the change. Held-out 0.882 / 0.652 / 0.750 and
 regression 0.889 / 0.800 / 0.842 are unchanged. Secret leaks 0.
 
+Stage 9 (shared mask rules, normalization, new shapes and labels; `--runs 1`
+each): original 0.900 / 0.800 / 0.847, held-out 0.882 / 0.652 / 0.750,
+regression 0.889 / 0.800 / 0.842, all unchanged from stage 8; 0 secret
+leaks. The 0.847 original-set score is a single-run (`--runs 1`)
+measurement, not a 3-run mean.
+
 Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
 tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
 control group dropped from 0.667 to 0.500: the node "Rotate LUMEN_KEY for
@@ -354,7 +367,10 @@ after these cases were written.
 Secret leaks were 0, but this set contains no fake secret, so that number says
 nothing here; secrets are covered by the leak tests and the held-out control.
 
-Known gaps in the question and noise rules (each is a heuristic):
+#### Known gaps
+
+Every filter here is pattern-based and best-effort, not a guarantee. Known
+gaps in the question, noise and secret rules:
 
 - A question without "?" ("what should I name my app") is not treated as a
   question, so a task read out of it can still be stored.
@@ -379,29 +395,58 @@ Known gaps in the question and noise rules (each is a heuristic):
   `test_over_masking_loss_is_counted_not_silent` and a strict xfail). The drop
   is counted in the extraction result's `dropped` total, not itemised. If the
   name appears anywhere else in the message, the node is kept.
-- Stage 8 closed two ways a password could be stored: filler words between
-  the label and "is" ("The password for Harbor Log is now42abc") and a value
-  that starts with a status word ("The password is not-so-secret-42"). A
-  fuzz test checks 25,480 combinations (13 labels x 0-6 filler words x 7
-  connectors x 5 value shapes x 8 message shapes, fixed seed) against the
-  prompt, `memory.db`/-wal/-shm, `memory_queue` and logs: 0 leaks (10,848 of
-  23,520 leaked before, on the 12 old labels). What remains (can store a
-  secret): more than 6 filler words; a filler word with a comma, colon or
-  sentence end ("the password, for prod, is x"); a value before its label
-  ("hunter2 is my password"); a label directly followed by manager, limit,
-  count, budget, window or policy ("the password policy is hunter2"); a label
-  that is not on the list ("the PIN is 4821", "the credentials are x").
-- Stage 8 also costs facts (security over recall): any sentence with a label,
-  a connector and a value is masked and its node dropped, so "the token is
-  valid for one hour", "the key is to keep it small" and "the secret is good
-  tests" are lost, and `=` now masks to the end of its clause as `:` and `is`
-  already did.
+- **Secret masking (stages 8 and 9), what it covers.** A label (see the
+  list above), up to 6 filler words, a connector (`=`, `:`, `->`, `=>`, an
+  em or en dash, is, was, are, is now, set to, equals, will be; the value may
+  be on the next line) and a value; JSON and dict values; URL userinfo
+  (`postgres://user:pass@host`) and URL query secrets (`?api_key=`); base64
+  tokens of 32+ characters with mixed case and digits; padded base64 after a
+  label; `Authorization`, `Bearer` and `Basic` tokens. Matching runs on a
+  normalized copy (NFKC, zero-width characters removed, Unicode spaces,
+  Cyrillic а е о р с х), and the original text is masked. The withheld
+  values, the mask and the node filter share one rule set, and a queued
+  error message is scrubbed of withheld values before it is written to
+  `memory_queue`.
+- **What the fuzz tests scan, exactly.** The stage-8 fuzz test
+  (`test_extraction_stage8.py`) takes its labels from the label list, so it
+  now runs 64,680 combinations (33 labels x 0-6 filler words x 7 connectors x
+  5 value shapes x 8 message shapes). It checks the extraction prompt, the
+  stored nodes and every file under each combination's own temporary home
+  and database (`memory.db`, -wal, -shm). Its model always returns valid
+  output, so it never writes `memory_queue`. The stage-9 fuzz test
+  (`test_extraction_stage9.py`, 17,824 combinations: 13 connectors, 5 Unicode
+  variants, JSON/dict/URL forms and 4 URL schemes) gives every third
+  combination invalid output, so 4,750 combinations really write
+  `memory_queue`, and every file under the temporary home is scanned. Both
+  report 0 leaks. Neither creates a session log: extraction never writes
+  one, and session logs belong to the working layer (gap 3 below). On the
+  pre-stage-9 code the stage-9 matrix leaked in 5,261 of 7,336 combinations
+  (13 labels there), including every queued one.
+- **Still not handled after stage 9 (can store a secret).** All checked:
+  - a value split across two lines ("my password is crim" / "son42": the
+    second line is not masked);
+  - a value before its label ("crimson42 is my password");
+  - more than 6 filler words ("the password for a b c d e f g is x");
+  - a comma, colon or sentence end inside the filler ("the password, for
+    prod, is x");
+  - a label directly followed by manager, limit, count, budget, window or
+    policy ("the password policy is hunter2");
+  - labels in other languages that are not listed ("la clave es pino42", "das
+    Kennwort ist tanne42"), and connectors other than the ones above;
+  - spaced-out letters ("p a s s w o r d: birch42");
+  - lookalike letters outside the small Cyrillic map (Greek ο in "pοssword").
+- **Recall cost (security over recall).** Any sentence with a label, a
+  connector and a value is masked and its node dropped. The longer label list
+  makes this more common: "the token is valid for one hour", "the key point
+  of Trail Tracker is speed", "the pass is valid until June", "auth is
+  handled by Auth0", "the cookie banner is ugly" all lose their value. `=` and
+  the next line after `:` are masked to the end of the clause.
 - A credential variable whose name is not on the suffix list, such as
   `LUMEN_KEY`, is stored as a name ("Rotate LUMEN_KEY for Lumen Budget"); its
   value is never stored. This is the price of keeping `PRIMARY_KEY`, and it is
   why the held-out control group dropped in round 3 (see the table).
-- **Open, tracked separately (pre-existing, not changed here):** the
-  redaction layer (`room/memory/redact.py`, used by capture and the working
+- **Gap 3 (open, tracked separately for stage 10; pre-existing, not changed
+  here):** the redaction layer (`room/memory/redact.py`, used by capture and the working
   layer) only catches known token shapes and `label=value` pairs with 6+
   characters, so a prefix-less password ("the password is swordfish") in a
   working-layer transcript is not redacted there, and `working_search` (also
@@ -572,7 +617,11 @@ Raw and temporary, unlike the curated graph above.
   opt-in with the same switch; it runs after each turn and keeps only your typed
   request and the final reply of each turn; the room's own `agy` calls, any
   `agy -p` run, and the Antigravity desktop app and IDE are not captured). Text is redacted before the write; if a secret pattern still
-  matches, nothing is written. Sessions with fewer than 2 typed messages or
+  matches, nothing is written. That redaction (`room/memory/redact.py`) is a
+  best-effort pattern filter: it misses a prefix-less password ("the
+  password is swordfish"), which can then sit in a working note and be
+  returned by `working_search` (gap 3 in [Known gaps](#known-gaps), open,
+  tracked for stage 10). Sessions with fewer than 2 typed messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock
   keeps two sessions that end at the same time from clashing; a resumed session

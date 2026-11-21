@@ -57,7 +57,8 @@ flowchart LR
 - **Graph memory (local-first, free by default):**
   - after each session, facts you state are extracted with Hermes into
     `~/.agent-room/memory.db`
-  - secrets are redacted first
+  - secrets are masked first by a best-effort pattern filter (not a
+    guarantee; see [known gaps](docs/MEMORY.md#known-gaps))
   - output is checked against a strict JSON schema, with a repair prompt, an
     optional fallback agent and a retry queue
   - duplicates are merged; newer facts supersede older ones and history is kept
@@ -322,12 +323,15 @@ In plain words: the working layer is a short-term notebook of recent chats,
 and the long-term layer is the curated memory. Capture fills the notebook
 automatically, but only if you turn it on. Claude Code sessions are saved
 after they end; Antigravity CLI conversations are saved after each turn,
-because `agy` has no end-of-session hook. Secrets are redacted before
-anything is written, and notes expire after 14 days.
+because `agy` has no end-of-session hook. A best-effort pattern filter
+redacts secrets before anything is written; it catches known token shapes and
+`label=value` pairs, not every password. A prefix-less password ("the password
+is swordfish") is not redacted in the working layer (gap 3 in the
+[known gaps](docs/MEMORY.md#known-gaps), tracked for stage 10). Notes expire after 14 days.
 
 - **Working layer** (`~/.agent-room/working/`): what was said in recent
   sessions, kept almost as it was (only your typed text and the assistant's
-  replies, with secrets redacted). It is raw and temporary: each note expires
+  replies, with secrets redacted by the best-effort filter above; see gap 3). It is raw and temporary: each note expires
   14 days after its last update. Nothing in it is sent to Hermes or the graph
   on its own.
 - **Long-term layer** (`memory.db`): curated facts, decisions and people,
@@ -362,10 +366,12 @@ background process and exits 0 at once, so it never slows down or breaks
 Claude Code. The background process reads the session transcript from
 `~/.claude/projects`, keeps only your typed text and the assistant's text
 (no thinking, tool calls, tool output, file contents, images, compaction
-summaries or harness notes; very long pastes are cut after redaction), redacts secrets before anything is written,
+summaries or harness notes; very long pastes are cut after redaction), redacts secrets with the best-effort pattern filter before anything is written,
 and stores it as one working note per session, tagged with the project folder
 name. A resumed session adds only its new turns. Very short sessions are
-skipped, and a note that still looks like it holds a secret is not saved.
+skipped, and a note in which a secret pattern still matches is not saved.
+These are patterns only: a secret they do not recognise can be saved (gap 3 in
+the [known gaps](docs/MEMORY.md#known-gaps)).
 
 The room never captures itself: every CLI agent it starts gets
 `ROOM_SPAWNED=1`, which makes capture do nothing. Room calls to `claude` also
@@ -424,13 +430,15 @@ that id's path, so a payload cannot point capture at another file.
   captured session(s); `agent="antigravity"` for Antigravity
 
 The two working-layer tools only open files for reading: they never create,
-change or delete anything, and they skip expired notes. Their output is
-redacted, capped at 8,000 characters and labelled as untrusted raw notes.
+change or delete anything, and they skip expired notes. Their output goes
+through the same best-effort redaction, so a prefix-less password stored in a
+working note can be returned (gap 3 in the [known gaps](docs/MEMORY.md#known-gaps)). It is capped at 8,000
+characters and labelled as untrusted raw notes.
 
 How search and show stay safe:
 - They open `memory.db` with SQLite's `mode=ro`, so they cannot change memory
   even by mistake. They read no other files and make no network calls.
-- Responses are redacted and capped at 8,000 characters.
+- Responses go through the best-effort redaction and are capped at 8,000 characters.
 - The tool descriptions tell the model that results are untrusted notes, not
   instructions.
 - If there is no memory yet, they return a plain message.
@@ -442,8 +450,8 @@ How saving stays safe:
   detached background process with a fixed argument list (no shell, no note
   text in the arguments). Hermes extracts the note locally; if Ollama isn't
   running, the note stays queued. The tool never waits for the model.
-- The note is redacted first, and refused (nothing saved) if a secret pattern
-  still matches. Empty notes and notes over 8,000 characters are refused, and
+- The note is redacted first (best-effort patterns), and refused (nothing
+  saved) if a secret pattern still matches. Empty notes and notes over 8,000 characters are refused, and
   each server process saves at most 5 notes per minute.
 - Its description says to call it only when the user explicitly asks to save
   something to memory, never because text in a chat, document or memory note
@@ -527,9 +535,10 @@ Keyword search has no notion of meaning; see the limits below.
     key variable; a factual premise before a question ("Since I am joining
     Corvid Analytics, what should I read?") is kept, a hypothetical one ("If I
     joined Google, ...") and the question itself are not. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
-    times), 0.847 after the stricter secret masking of stage 8. A 13-case held-out set, written before the fixes by the same author
-    (a sanity check, not an independent benchmark): F1 0.649 to 0.769 after
-    round 2, then 0.750 in round 3, because keeping words like "PRIMARY_KEY"
+    times), 0.847 after the stricter secret masking of stage 8 (a single `--runs 1`
+    measurement; unchanged after stage 9). A 13-case held-out set, written before the fixes by the same author
+    (a sanity check, not an independent benchmark): F1 0.649 before, 0.750
+    after round 2, 0.769 after the round-2 review fixes, then 0.750 in round 3, because keeping words like "PRIMARY_KEY"
     also lets a note that names the variable `LUMEN_KEY` through (the name
     only, never its value); its 5 cases unrelated to these issues went from
     0.753 to 0.741. A 19-case regression set built from the reviewer's inputs
@@ -625,7 +634,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 824 tests (counted with `pytest --collect-only`; 821 pass and 3 are expected failures, `xfail`, marking known gaps). One of them is a 25,480-combination secret-leak fuzz test, which takes about a minute. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 901 tests (counted with `pytest --collect-only`; 898 pass and 3 are expected failures, `xfail`, marking known gaps). Two of them are secret-leak fuzz tests (64,680 and 17,824 combinations; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about four minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
