@@ -321,6 +321,11 @@ regression 0.889 / 0.800 / 0.842, all unchanged from stage 8; 0 secret
 leaks. The 0.847 original-set score is a single-run (`--runs 1`)
 measurement, not a 3-run mean.
 
+Stage 10 (quoted and wrapped values, common shapes, redact_secrets substrings
+withheld; `--runs 1` each): original 0.900 / 0.800 / 0.847, held-out 0.882 /
+0.652 / 0.750, regression 0.889 / 0.800 / 0.842, all unchanged; 0 secret
+leaks.
+
 Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
 tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
 control group dropped from 0.667 to 0.500: the node "Rotate LUMEN_KEY for
@@ -395,46 +400,96 @@ gaps in the question, noise and secret rules:
   `test_over_masking_loss_is_counted_not_silent` and a strict xfail). The drop
   is counted in the extraction result's `dropped` total, not itemised. If the
   name appears anywhere else in the message, the node is kept.
-- **Secret masking (stages 8 and 9), what it covers.** A label (see the
+- **Secret masking (stages 8 to 10), what it covers.** A label (see the
   list above), up to 6 filler words, a connector (`=`, `:`, `->`, `=>`, an
   em or en dash, is, was, are, is now, set to, equals, will be; the value may
-  be on the next line) and a value; JSON and dict values; URL userinfo
-  (`postgres://user:pass@host`) and URL query secrets (`?api_key=`); base64
-  tokens of 32+ characters with mixed case and digits; padded base64 after a
-  label; `Authorization`, `Bearer` and `Basic` tokens. Matching runs on a
-  normalized copy (NFKC, zero-width characters removed, Unicode spaces,
-  Cyrillic а е о р с х), and the original text is masked. The withheld
-  values, the mask and the node filter share one rule set, and a queued
-  error message is scrubbed of withheld values before it is written to
-  `memory_queue`.
-- **What the fuzz tests scan, exactly.** The stage-8 fuzz test
-  (`test_extraction_stage8.py`) takes its labels from the label list, so it
-  now runs 64,680 combinations (33 labels x 0-6 filler words x 7 connectors x
-  5 value shapes x 8 message shapes). It checks the extraction prompt, the
-  stored nodes and every file under each combination's own temporary home
-  and database (`memory.db`, -wal, -shm). Its model always returns valid
-  output, so it never writes `memory_queue`. The stage-9 fuzz test
-  (`test_extraction_stage9.py`, 17,824 combinations: 13 connectors, 5 Unicode
-  variants, JSON/dict/URL forms and 4 URL schemes) gives every third
-  combination invalid output, so 4,750 combinations really write
-  `memory_queue`, and every file under the temporary home is scanned. Both
-  report 0 leaks. Neither creates a session log: extraction never writes
-  one, and session logs belong to the working layer (gap 3 below). On the
-  pre-stage-9 code the stage-9 matrix leaked in 5,261 of 7,336 combinations
-  (13 labels there), including every queued one.
-- **Still not handled after stage 9 (can store a secret).** All checked:
-  - a value split across two lines ("my password is crim" / "son42": the
-    second line is not masked);
+  be up to 4 lines down, also after a YAML `|` or `>-`) and a value. A quoted
+  value runs to its matching closing quote, backslash escapes included; a
+  value wrapped in ( ) or < >, or written after `==`, is masked with its
+  wrapper. Also: JSON and dict values; Markdown or quoted labels
+  (`**Password**:`, `` `api_key`: ``); URL userinfo
+  (`postgres://user:pass@host`) and URL query secrets (`?api_key=`; `&` ends
+  a value only before another `name=`); curl `-u`/`--user` (the part after
+  `:`), `-b`/`--cookie` (the first value); `redis-cli -a`, `mysql -p`,
+  `--password=`, `sshpass -p`; "with password X" / "using token X" when X
+  has a digit or symbol; `login: user/PASS` (the part after `/`); SendGrid
+  `SG.` tokens, `glpat-`, `whsec_`, Azure SAS `sig=`; base64 tokens of 32+
+  characters with mixed case and digits; padded base64 after a label;
+  `Authorization`, `Bearer` and `Basic` tokens. Token shapes are matched in
+  a second pass too, so a token inside a label's filler words is masked.
+  Matching runs on a normalized copy (NFKC, zero-width characters removed,
+  Unicode spaces, Cyrillic а е о р с х), and the original text is masked.
+  `~~~` and ``` code fences are cut before the model.
+- **What "one rule set" means, exactly.** The extraction filter's own
+  patterns (`quality.credential_spans`) drive the prompt mask, the withheld
+  values and the node filter. The extraction prompt then also goes through
+  `redact_secrets` (redact.py, unchanged). Since stage 10, every substring
+  `redact_secrets` masks in that prompt, meaning in `clean_message(text)`
+  and in the masked text before `clean_message` drops lines, is added to the
+  withheld values. They are found by comparing the text before and after
+  `redact_secrets`. Not unioned: what `redact_secrets` would mask in the
+  raw text, which is not what the model sees (for example
+  "hibiscus44&v=1" in "?api_key=hibiscus44&v=1", where the prompt already
+  shows "?api_key=[REDACTED]&v=1"). The node filter itself checks only the
+  extraction filter's patterns plus `find_secrets`, not every
+  `redact_secrets` rule. A queued error message is scrubbed of withheld
+  values before it is written to `memory_queue`.
+- **What the fuzz tests scan, exactly.** Counts were measured with
+  `len(fuzz_cases())`, `len(fuzz9_cases())` and `len(fuzz10_cases())` and
+  match what each test prints under `pytest -s`. The stage-8 and stage-9
+  tests take their labels from the label list, so their size grows with
+  it. (The stage-9 docs said 64,680 for the stage-8 test; that was computed
+  by hand with a wrong label count. The measured count then was 62,720.)
+  - Stage 8 (`test_extraction_stage8.py`): 70,560 combinations (36 labels x
+    0-6 filler words x 7 connectors x 5 value shapes x 8 message shapes). It
+    checks the extraction prompt, the stored nodes and every file under each
+    combination's own temporary home and database (`memory.db`, -wal,
+    -shm). Its model always returns valid output, so it never writes
+    `memory_queue`.
+  - Stage 9 (`test_extraction_stage9.py`): 20,032 combinations (labels x 13
+    connectors x 5 Unicode variants x 8 shapes, JSON/dict/URL forms, 4 URL
+    schemes). Every third combination gets invalid output, so 5,334 really
+    write `memory_queue`, and every file under the home is scanned.
+  - Stage 10 (`test_extraction_stage10.py`): 5,769 combinations (36 labels x
+    16 quoted, wrapped, YAML, Markdown, query and with/using families x 9
+    shapes including a `~~~` fence, plus 13 curl, CLI, login and token
+    families). 1,923 really write `memory_queue`. For token shapes it scans
+    for the whole token.
+  - All three report 0 leaks. None creates a session log: extraction never
+    writes one, and session logs belong to the working layer (gap 3 below).
+    Before each stage, its own matrix leaked on the code it replaced:
+    stage 9's in 5,261 of 7,336 combinations, stage 10's in 4,063 of 5,193
+    (on 98f6829, 32 labels).
+- **Still not handled after stage 10 (can store a secret).** All checked
+  by running them, none in the test suite as a passing case:
+  - a value split across two lines ("my password is crim" / "son42");
   - a value before its label ("crimson42 is my password");
   - more than 6 filler words ("the password for a b c d e f g is x");
   - a comma, colon or sentence end inside the filler ("the password, for
     prod, is x");
+  - a comma in an unquoted value ("password: elm51x,elm52x" masks only
+    "elm51x"), and a quote escaped by doubling instead of a backslash
+    ("'it''s elm53x'");
   - a label directly followed by manager, limit, count, budget, window or
     policy ("the password policy is hunter2");
-  - labels in other languages that are not listed ("la clave es pino42", "das
-    Kennwort ist tanne42"), and connectors other than the ones above;
+  - labels that are not listed, such as "masterphrase", and labels in other
+    languages that are not listed ("la clave es pino42", "das Kennwort ist
+    tanne42");
+  - "with password swordfish" (letters only: not masked, so that "with
+    password protection" stays);
+  - `mysql -p PASS` with a space (mysql reads that as a prompt, so it is not
+    masked); every cookie after the first in `-b "a=x; b=y"`; every line of
+    a YAML block scalar after the first;
+  - tokens that mix `/` and `-` so that no run of 32 base64 characters
+    remains ("Ab3dEf7gHi9jKl1m/No3p-Qr5sTu7vWx9yZa1bCd3eFg");
+  - curl `-H` header forms are not in the test suite. Three ad-hoc probes
+    were masked (`X-Api-Key:`, `Authorization: Token`, `X-Auth-Token:`); other
+    header names were not tested;
   - spaced-out letters ("p a s s w o r d: birch42");
   - lookalike letters outside the small Cyrillic map (Greek ο in "pοssword").
+- **Why best-effort.** Independent reviewers invented new bypasses quickly:
+  the second review found about 45 leaks in 56 new inputs. That is why this
+  is a best-effort filter and not a guarantee.
 - **Recall cost (security over recall).** Any sentence with a label, a
   connector and a value is masked and its node dropped. The longer label list
   makes this more common: "the token is valid for one hour", "the key point

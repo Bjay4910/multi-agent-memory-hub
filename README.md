@@ -405,7 +405,8 @@ broken. The background process reads the conversation's transcript under
 `~/.gemini/antigravity-cli/brain/`, keeps only your typed request and the
 assistant's final reply of each turn (no thinking, tool calls, tool output,
 file contents, metadata or system messages; very long messages are cut and
-marked), redacts secrets and updates one working note per conversation. Running
+marked), redacts secrets (best-effort pattern filter; see gap 3 in the
+[known gaps](docs/MEMORY.md#known-gaps)) and updates one working note per conversation. Running
 the hook again for the same turn stores nothing new. A conversation needs at
 least 2 typed messages and 400 characters before a note is created.
 
@@ -634,7 +635,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 901 tests (counted with `pytest --collect-only`; 898 pass and 3 are expected failures, `xfail`, marking known gaps). Two of them are secret-leak fuzz tests (64,680 and 17,824 combinations; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about four minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 984 tests (counted with `pytest --collect-only`; 981 pass and 3 are expected failures, `xfail`, marking known gaps). Three of them are secret-leak fuzz tests (70,560, 20,032 and 5,769 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

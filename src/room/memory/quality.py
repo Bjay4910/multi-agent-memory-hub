@@ -235,8 +235,9 @@ def _credential_matches(text: str) -> list[tuple[int, int, str, str]]:
 
 
 def credential_spans(text: str) -> list[tuple[int, int]]:
-    """(start, end) of every credential value in ``text``. The one rule set behind the mask, the
-    withheld values and the node filter, so they can never disagree."""
+    """(start, end) of every credential value in ``text``, overlapping spans merged. These patterns drive
+    the prompt mask, the withheld values and the node filter; withheld_values also adds what redact_secrets
+    masks in the extraction prompt (see redact_masked_substrings)."""
     merged: list[tuple[int, int]] = []
     for s, e, _, _ in _credential_matches(text):  # sorted; overlapping spans are merged
         if merged and s <= merged[-1][1]:
