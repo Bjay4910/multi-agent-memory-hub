@@ -638,7 +638,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 984 tests (counted with `pytest --collect-only`; 981 pass and 3 are expected failures, `xfail`, marking known gaps). Three of them are secret-leak fuzz tests (70,560, 20,032 and 5,769 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 1,104 tests (counted with `pytest --collect-only`; 1,101 pass and 3 are expected failures, `xfail`, marking known gaps). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

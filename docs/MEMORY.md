@@ -478,7 +478,8 @@ gaps in the question, noise and secret rules:
   `redact_secrets` rule. A queued error message is scrubbed of withheld
   values before it is written to `memory_queue`.
 - **What the fuzz tests scan, exactly.** Counts were measured with
-  `len(fuzz_cases())`, `len(fuzz9_cases())` and `len(fuzz10_cases())` and
+  `len(fuzz_cases())`, `len(fuzz9_cases())`, `len(fuzz10_cases())` and
+  `len(fuzz11_cases())` and
   match what each test prints under `pytest -s`. The stage-8 and stage-9
   tests take their labels from the label list, so their size grows with
   it. (The stage-9 docs said 64,680 for the stage-8 test; that was computed
@@ -498,11 +499,16 @@ gaps in the question, noise and secret rules:
     shapes including a `~~~` fence, plus 13 curl, CLI, login and token
     families). 1,923 really write `memory_queue`. For token shapes it scans
     for the whole token.
-  - All three report 0 leaks. None creates a session log: extraction never
+  - Stage 11 (`test_extraction_stage11.py`): 5,391 combinations (36 labels x
+    14 families: nested ( ) [ ] < > { }, wrapped labels before filler,
+    with/using + quoted value, changed ... to, 's / as, XML, YAML |2, x 9
+    shapes; plus 19 curl, CLI, env-name, login, JSON list / Authorization,
+    Basic and token families). 1,797 really write `memory_queue`.
+  - All four report 0 leaks. None creates a session log: extraction never
     writes one, and session logs belong to the working layer (gap 3 below).
     Before each stage, its own matrix leaked on the code it replaced:
     stage 9's in 5,261 of 7,336 combinations, stage 10's in 4,063 of 5,193
-    (on 98f6829, 32 labels).
+    (on 98f6829, 32 labels), stage 11's in 4,562 of 5,391 (on 0e057e4).
 - **Still not handled after stage 11 (can store a secret).** All checked
   by running them, none in the test suite as a passing case:
   - a value split across two lines ("my password is crim" / "son42");

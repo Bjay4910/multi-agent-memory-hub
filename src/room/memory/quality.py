@@ -215,7 +215,7 @@ _CREDENTIAL = re.compile(
 _TOKEN_SHAPES = re.compile(
     r"\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})"
     r"|\b(?P<wh>whsec_[A-Za-z0-9+/=_]{16,})|\b(?P<pp>pypi-[A-Za-z0-9_-]{16,})|\b(?P<hv>hvs\.[A-Za-z0-9_-]{20,})"
-    r"|(?<![A-Za-z0-9_.-])(?P<dc>[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,40})(?![A-Za-z0-9_-])"
+    r"|(?<![A-Za-z0-9_.-])(?P<dc>[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,64})(?![A-Za-z0-9_-])"
     rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}")
 
 # Matching runs on a normalized copy (NFKC, so fullwidth : and = become ASCII; zero-width characters
