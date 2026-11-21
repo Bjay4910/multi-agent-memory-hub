@@ -71,7 +71,7 @@ _GROUP_WORDS = r"we're|we've|we|our"
 _FIRST_PERSON = re.compile(rf"(?<![\w/\\.-])({_SPEAKER_WORDS}|mine|me|{_GROUP_WORDS}|us)(?![\w/\\-]|\.\w)", re.I)
 _SPEAKER_START = re.compile(rf"^\s*({_SPEAKER_WORDS})\s+[a-z]", re.I)
 _GROUP_START = re.compile(rf"^\s*({_GROUP_WORDS})\s+[a-z]", re.I)
-_FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
+_FENCE = re.compile(r"(```|~~~).*?(?:\1|\Z)", re.S)  # ``` and ~~~ code fences
 _NOISE_LINE = re.compile(
     r"^\s*(Traceback \(most recent call last\):|File \".*\", line \d+|[A-Za-z_.]+(Error|Exception|Warning)(:|$)|"
     r"\$ |% |>>> |at [\w.$<>]+\(.*:\d+\)|npm (ERR|WARN)|\[\d{1,2}:\d{2}(:\d{2})?\]|exit (code|status) \d+|"
@@ -101,7 +101,8 @@ _DEFINITION = re.compile(r"^\s*(what(?:'s|\s+(?:is|are|was|were))|who(?:'s|\s+(?
 SECRET_LABELS = ("client secret", "secret key", "api key", "access key", "private key", "passphrase", "passcode",
                  "password", "passwd", "pwd", "secret", "token", "key", "pass", "pw", "pin", "otp", "2fa code",
                  "recovery code", "session cookie", "cookie", "psk", "secret code", "seed phrase", "auth header",
-                 "auth", "credentials", "mot de passe", "contraseña", "passwort", "密码", "パスワード")
+                 "auth", "credentials", "mot de passe", "contraseña", "passwort", "密码", "パスワード", "jwt", "totp",
+                 "hmac", "license key")
 # Credential variable names, as suffixes (ANTHROPIC_API_KEY, GITHUB_TOKEN, DB_PASSWD, GH_PAT; PAT needs a prefix).
 SECRET_VAR_SUFFIXES = ("API_KEY", "ACCESS_KEY", "SECRET_KEY", "PRIVATE_KEY", "CLIENT_SECRET", "SECRET", "TOKEN",
                        "PASSWORD", "PASSWD", "PAT")
@@ -116,10 +117,11 @@ _LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-
 _FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
 # The connector: "=", ":", "->", "=>", an em or en dash, "is", "was", "are", "is now", "set to", "is set to",
 # "equals", "is equal to", "will be", or 是 / は after a Chinese or Japanese label. A key in quotes may close
-# before ":" ('"password": "x"'), and the value may sit up to 4 lines down ("password:\n\n  x", YAML).
-_CONNECT = (r"(?:[\"']?[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:\n[ \t]*){0,4}"
+# before ":" ('"password": "x"'), as may Markdown ("**Password**: x", "`api_key`: x"); the value may sit up to
+# 4 lines down ("password:\n\n  x"), also after a YAML block indicator ("password: |\n  x", "key: >-\n  x").
+_CONNECT = (r"(?:[\"'`*]{0,2}[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:[|>][+-]?[ \t]*(?=\n))?(?:\n[ \t]*){0,4}"
             r"|[ \t]*[是は][ \t]*"
-            r"|[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|will[ \t]+be|"
+            r"|[\"'`*]{0,2}[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|will[ \t]+be|"
             r"(?:is|was|are)(?:[ \t]+now)?)"
             r"(?:[ \t]+|[ \t]*\n[ \t]*))")
 # The value runs to the end of the clause, so a passphrase ("blue sky mining") is masked whole. It also
@@ -146,10 +148,32 @@ _CREDENTIAL = re.compile(
     rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
     r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")"
     r"|\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})"                # SendGrid: the whole token
+    r"|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})|\b(?P<wh>whsec_[A-Za-z0-9+/=]{16,})"   # GitLab PAT, webhook secret
+    r"|[?&]sig=(?P<sas>[A-Za-z0-9%+/=]{8,})"                                    # Azure SAS signature
+    # curl -u user:PASS / --user user:PASS, -b 'name=VALUE' / --cookie (case-sensitive flags)
+    r"""|(?<!\S)(?-i:-u|--user)(?:[ \t]+|=)["']?[^\s:"']+:(?P<cu>[^\s"']+)"""
+    r"""|(?<!\S)(?-i:-b|--cookie)(?:[ \t]+|=)["']?[^\s=;"']+=(?P<ck>[^\s;"']+)"""
+    # redis-cli -a PASS, mysql -pPASS, --password=PASS / --password PASS, sshpass -p PASS
+    r"""|\bredis-cli\b[^\n]*?(?<!\S)(?-i:-a)[ \t]+["']?(?P<cr>[^\s"']+)"""
+    r"""|\bmysql(?:dump|admin)?\b[^\n]*?(?<!\S)(?-i:-p)(?P<cm>[^\s"']+)"""
+    r"""|(?<!\S)--password(?:=|[ \t]+)["']?(?P<cf>[^\s"']+)"""
+    r"""|\bsshpass\b[^\n]*?(?<!\S)(?-i:-p)[ \t]+["']?(?P<cs>[^\s"']+)"""
+    # "with password X" / "using token X": only a value with a digit or symbol ("with password protection" stays)
+    rf"""|\b(?:with|using)[ \t]+(?:(?:the|a|an|my|our)[ \t]+)?{_LABEL}[ \t]+"""
+    r"""(?P<wu>(?=[^\s,;"']*[^A-Za-z\s,;"'])[^\s,;"']*[^\s,;"'.!?])"""
+    # login: user/PASS (only the part after "/"; a bare login is a user name, not a secret)
+    rf"""|\blogin{_FILLER}{_CONNECT}["']?[^\s/,;"']+/(?P<lg>[^\s,;"']*[^\s,;"'.!?])"""
     rf"|\bbasic\s+(?P<f>(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}={{0,2}}){_B64_END}"  # Basic dXNlcjpw...
     r"|\b[a-z][a-z0-9+.-]*://(?P<u>[^\s/@:\"'<>]*:[^\s/@\"'<>]+)(?=@)"  # postgres://admin:x@host (user:pass)
     rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}",  # a 32+ char token, checked below
     re.I)
+
+# Token shapes are also matched in a second, independent pass, so a token that a label match took as a
+# filler word ("Webhook secret whsec_... is set") is still masked.
+_TOKEN_SHAPES = re.compile(
+    r"\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})"
+    r"|\b(?P<wh>whsec_[A-Za-z0-9+/=]{16,})"
+    rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}")
 
 # Matching runs on a normalized copy (NFKC, so fullwidth : and = become ASCII; zero-width characters
 # removed; every Unicode space a space; a few Cyrillic lookalikes as Latin letters). Spans map back to the
@@ -200,13 +224,26 @@ def _credential_matches(text: str) -> list[tuple[int, int, str, str]]:
             continue
         start, end = m.span(kind)
         found.append((origin[start], origin[end - 1] + 1, value, kind))
-    return found
+    for m in _TOKEN_SHAPES.finditer(norm):
+        kind = next(k for k, v in m.groupdict().items() if v)
+        if kind == "g" and not _looks_random(m.group(kind)):
+            continue
+        start, end = origin[m.start(kind)], origin[m.end(kind) - 1] + 1
+        if not any(s <= start and end <= e for s, e, _, _ in found):
+            found.append((start, end, m.group(kind), kind))
+    return sorted(found)
 
 
 def credential_spans(text: str) -> list[tuple[int, int]]:
     """(start, end) of every credential value in ``text``. The one rule set behind the mask, the
     withheld values and the node filter, so they can never disagree."""
-    return [(s, e) for s, e, _, _ in _credential_matches(text)]
+    merged: list[tuple[int, int]] = []
+    for s, e, _, _ in _credential_matches(text):  # sorted; overlapping spans are merged
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(e, merged[-1][1]))
+        else:
+            merged.append((s, e))
+    return merged
 
 
 def has_credential(text: str) -> bool:

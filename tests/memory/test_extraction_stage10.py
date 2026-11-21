@@ -246,3 +246,110 @@ def check_property(corpus):
 
 def test_property_every_value_masked_by_either_layer_is_withheld():
     assert check_property(a_corpus()) == []
+
+
+# -- B. common shapes: only the secret part is masked, the rest of the sentence is kept ------------------------------
+
+# (shape, input, fake secret, expected masked text)
+B_SHAPES = [
+    ("markdown", "**Password**: sycamore38", "sycamore38", "**Password**: [REDACTED]"),
+    ("markdown", "`api_key`: chestnut29", "chestnut29", "`api_key`: [REDACTED]"),
+    ("markdown", '"password" is walnut64.', "walnut64", '"password" is [REDACTED].'),
+    ("curl", "curl -u deploy:hazel71 https://api.example.com/v1", "hazel71",
+     "curl -u deploy:[REDACTED] https://api.example.com/v1"),
+    ("curl", "curl --user ops:maple82 https://api.example.com/v1", "maple82",
+     "curl --user ops:[REDACTED] https://api.example.com/v1"),
+    ("curl", "curl -b 'sid=cedar93' https://api.example.com/v1", "cedar93",
+     "curl -b 'sid=[REDACTED]' https://api.example.com/v1"),
+    ("curl", 'curl --cookie "session=birch44" https://api.example.com/v1', "birch44",
+     'curl --cookie "session=[REDACTED]" https://api.example.com/v1'),
+    ("cli-flags", "redis-cli -a quince55 -h cache.internal", "quince55", "redis-cli -a [REDACTED] -h cache.internal"),
+    ("cli-flags", "mysql -u admin -prowan66 shop", "rowan66", "mysql -u admin -p[REDACTED] shop"),
+    ("cli-flags", "mysql -u admin --password=aspen77 shop", "aspen77", "mysql -u admin --password=[REDACTED] shop"),
+    ("cli-flags", "sshpass -p 'larch88' ssh ops@db.internal", "larch88",
+     "sshpass -p '[REDACTED]' ssh ops@db.internal"),
+    ("yaml-block", "password: |\n  spruce99", "spruce99", "password: |\n  [REDACTED]"),
+    ("yaml-block", "api_key: >-\n  poplar11", "poplar11", "api_key: >-\n  [REDACTED]"),
+    ("token-shapes", "Trail Tracker CI uses glpat-AbCdEfGhIjKlMnOpQrSt12 for pushes", "glpat-AbCdEfGhIjKlMnOpQrSt12",
+     "Trail Tracker CI uses [REDACTED] for pushes"),
+    ("token-shapes", "Webhook signing uses whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw in prod",
+     "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", "Webhook signing uses [REDACTED] in prod"),
+    ("token-shapes", "https://acct.blob.core.windows.net/c/f.txt?sv=2021-08-06&sig=Ab3dEf%2BgHi9jKl%3D&se=2026",
+     "Ab3dEf%2BgHi9jKl%3D", "https://acct.blob.core.windows.net/c/f.txt?sv=2021-08-06&sig=[REDACTED]&se=2026"),
+    ("token-shapes", "Upload to https://acct.blob.core.windows.net/c?sig=Q1w2E3r4T5y6%3D", "Q1w2E3r4T5y6%3D",
+     "Upload to https://acct.blob.core.windows.net/c?sig=[REDACTED]"),
+    ("with-using", "Connect with password juniper89 to the staging box.", "juniper89",
+     "Connect with password [REDACTED] to the staging box."),
+    ("with-using", "Log in using token oak-77-ash today.", "oak-77-ash", "Log in using token [REDACTED] today."),
+    ("labels", "login: admin/teak42", "teak42", "login: admin/[REDACTED]"),
+    ("labels", "the login is ops/sequoia7 for staging", "sequoia7", "the login is ops/[REDACTED] for staging"),
+    ("labels", "jwt: Ab3dEf7gHi9jKl", "Ab3dEf7gHi9jKl", "jwt: [REDACTED]"),
+    ("labels", "totp = 482913", "482913", "totp = [REDACTED]"),
+    ("labels", "hmac: f00dbabe99", "f00dbabe99", "hmac: [REDACTED]"),
+    ("labels", "license key: ABCD-1234-EFGH", "ABCD-1234-EFGH", "license key: [REDACTED]"),
+]
+
+B_FALSE_POSITIVES = [
+    ("markdown", "**Note**: the build is green."),
+    ("markdown", "`token_count`: 42"),
+    ("curl", "curl -u deploy https://api.example.com/v1"),
+    ("curl", "sort -u names.txt"),
+    ("cli-flags", "grep -a pattern notes.txt"),
+    ("cli-flags", "redis-cli -h cache.internal ping"),
+    ("cli-flags", "mysql -u admin -p shop"),
+    ("yaml-block", "description: |\n  A log viewer for Harbor Log."),
+    ("token-shapes", "GitLab tokens start with glpat-short"),
+    ("token-shapes", "https://example.com/feed?signal=1&page=2"),
+    ("token-shapes", "~~struck~~ text stays"),
+    ("with-using", "Sign in with password protection enabled."),
+    ("with-using", "We ship with token limits of 4096."),
+    ("labels", "Our login page has a dark theme."),
+    ("labels", "We added HMAC signing to webhooks."),
+    ("labels", "Trail Tracker uses JWT tokens for mobile auth."),
+]
+
+
+@pytest.mark.parametrize("shape, text, secret, masked", B_SHAPES,
+                         ids=[f"{s}-{i}" for i, (s, *_) in enumerate(B_SHAPES)])
+def test_common_shape_masks_only_the_secret(shape, text, secret, masked):
+    assert quality.mask_credentials(text) == masked
+    assert secret in quality.withheld_values(text)
+
+
+@pytest.mark.parametrize("shape, text", B_FALSE_POSITIVES, ids=[f"{s}-{i}" for i, (s, _) in enumerate(B_FALSE_POSITIVES)])
+def test_common_shape_false_positive_is_not_masked(shape, text):
+    assert quality.mask_credentials(text) == text
+
+
+def test_every_b_shape_has_two_inputs_and_a_false_positive():
+    shapes = {s for s, *_ in B_SHAPES}
+    for shape in shapes:
+        assert sum(s == shape for s, *_ in B_SHAPES) >= 2, shape
+        assert any(s == shape for s, _ in B_FALSE_POSITIVES), shape
+
+
+def test_tilde_code_fence_is_stripped_like_backticks():
+    text = "My config:\n~~~\npassword = fir23\n~~~\nTrail Tracker deploys nightly."
+    cleaned = quality.clean_message(text)
+    assert "fir23" not in cleaned and "Trail Tracker deploys nightly." in cleaned
+
+
+@pytest.mark.parametrize("shape, text, secret, masked", B_SHAPES[::3],
+                         ids=[f"{s}-{i}" for i, (s, *_) in enumerate(B_SHAPES[::3])])
+def test_common_shape_never_leaks(shape, text, secret, masked, tmp_path, monkeypatch):
+    assert_never_leaks(f"{text}\nTrail Tracker deploys nightly.", secret, tmp_path, monkeypatch)
+
+
+def test_property_holds_for_the_b_shapes():
+    corpus = [(text, secret) for _, text, secret, _ in B_SHAPES]
+    assert check_property(corpus) == []
+
+
+@pytest.mark.parametrize("text, token", [
+    ("Webhook secret whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw is set", "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"),
+    ("the token glpat-AbCdEfGhIjKlMnOpQrSt12 was rotated", "glpat-AbCdEfGhIjKlMnOpQrSt12"),
+    (f"my key {FAKE_SG} is active", FAKE_SG),
+])
+def test_a_token_inside_the_filler_of_a_label_match_is_still_masked(text, token):
+    assert token not in quality.mask_credentials(text)
+    assert token in quality.withheld_values(text)

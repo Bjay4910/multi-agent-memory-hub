@@ -197,7 +197,7 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
      passwd, pwd, secret, token, key, pass, pw, pin, otp, 2fa code,
      recovery code, session cookie, cookie, psk, secret code, seed phrase,
      auth header, auth, credentials, mot de passe, contraseña, passwort,
-     密码 and パスワード; in each, a space may also be `_` or `-` (api
+     密码, パスワード, jwt, totp, hmac and license key; in each, a space may also be `_` or `-` (api
      key, api_key, api-key), and a variable prefix is allowed (`DB_PASSWD`,
      `GH_PAT`; `pat` only with a prefix). A label directly followed by manager,
      limit, count, budget, window or policy (or their plurals) names a thing,
