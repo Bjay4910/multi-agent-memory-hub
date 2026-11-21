@@ -115,7 +115,13 @@ _LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-
 # Up to 6 words may sit between the label and the connector ("the password for Harbor Log is ...",
 # "the password (for prod) is ...", "the token for harbor.log is ..."); a word holds no clause or sentence end.
 _WRAP = r"[\"'`*]{0,2}"  # a label's closing wrapper: "**Password** for x is", "`api_key` for x ="
-_FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
+# A filler word is never a base64 token whose "=" padding would then be read as the connector ("my token YWJjZGU=
+# for Trail Tracker" masks the token, not "for Trail Tracker"): 4+ base64 characters with an upper- and a lower-case
+# letter (the upper-case one after the first character, so "Harbor= x" stays a connector), then "=" or "==" and
+# no more base64.
+_PADDED_WORD = (r"(?-i:(?=[A-Za-z0-9+/][A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[a-z]))[A-Za-z0-9+/]{4,}={1,2}"
+                r"(?![A-Za-z0-9+/=_-])")
+_FILLER = rf"(?:[ \t]+(?!{_PADDED_WORD})[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){{0,6}}?"
 # The connector: "=", ":", "->", "=>", an em or en dash, "is", "was", "are", "is now", "set to", "is set to",
 # "equals", "is equal to", "will be", or 是 / は after a Chinese or Japanese label. A key in quotes may close
 # before ":" ('"password": "x"'), as may Markdown ("**Password**: x", "`api_key`: x"); the value may sit up to
@@ -404,7 +410,9 @@ def withheld_values(text: str) -> set[str]:
     visible = {w.strip(".,;:!?()<>='\"`").lower() for w in mask_credentials(prepared).split()}
     words = {w.strip(strip) for v in values for w in v.split() for strip in (".,;:!?()'\"", ".,;:!?()<>='\"`")}
     # and each piece of 5+ characters between punctuation ("post77" in pre\"post77, the id in SG.id.secret)
-    pieces = {p for v in values for p in _PIECE_SPLIT.split(v) if len(p) >= 5}
+    # (3+ characters if the piece mixes letters and digits: "k9x4" in 我的密码是k9x4别告诉别人)
+    pieces = {p for v in values for p in _PIECE_SPLIT.split(v)
+              if len(p) >= 5 or (len(p) >= 3 and re.search(r"[0-9]", p) and re.search(r"[^\W\d_]", p))}
     # inside a bracket-wrapped value, every piece of 3+ characters between brackets ("y179" in "<x<y179>>")
     pieces |= {p for v in values if v[:1] in "(<[{" for p in re.split(r"[()<>\[\]{}]+", v) if len(p) >= 3}
     return (values | {w for w in words if len(w) >= 3 and w.lower() not in visible}
