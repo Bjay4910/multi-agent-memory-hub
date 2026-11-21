@@ -178,15 +178,15 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    - a credential value: a label, then up to 6 filler words, then a
      connector (`=`, `:`, `->`, `=>`, an em or en dash, `is`, `was`, `are`,
      `is now`, `set to`, `is set to`, `equals`, `is equal to`, `will be`, or
-     是 / は; the value may start on the next line), then a value that runs to
+     是 / は; the value may be up to 4 lines down), then a value that runs to
      the end of the clause, a quote, a closing bracket, or `&` before another
      URL parameter ("API_KEY=abcd1234", "pwd: orange", "the password is
      swordfish", "my passphrase is blue sky mining", "The password for Harbor
      Log is now42abc", "the password (for prod) is ...", '{"password":
-     "x"}', "?api_key=x&v=1"); URL userinfo (`postgres://user:pass@host`,
-     masked whole); a 32+ character base64 token with mixed case and digits;
-     padded base64 after a label; or `Authorization: ...` / `Bearer <value>`
-     / `Basic <value>`. Matching runs on a normalized copy (NFKC, zero-width
+     "x"}', "?api_key=x&v=1"). Every other handled form is listed, with one
+     example and the test that shows it, in [Handled forms
+     (tested)](#handled-forms-tested); a form that is not in that table is
+     not covered. Matching runs on a normalized copy (NFKC, zero-width
      characters removed, Unicode spaces, Cyrillic а е о р с х as Latin); the
      original text is what gets masked. A filler word holds
      no `,` `;` `:` `=` `!` `?` and no `.` except inside a name. There is no
@@ -321,10 +321,14 @@ regression 0.889 / 0.800 / 0.842, all unchanged from stage 8; 0 secret
 leaks. The 0.847 original-set score is a single-run (`--runs 1`)
 measurement, not a 3-run mean.
 
-Stage 10 (quoted and wrapped values, common shapes, redact_secrets substrings
+Stage 10 (quoted and wrapped values, more shapes, redact_secrets substrings
 withheld; `--runs 1` each): original 0.900 / 0.800 / 0.847, held-out 0.882 /
 0.652 / 0.750, regression 0.889 / 0.800 / 0.842, all unchanged; 0 secret
 leaks.
+
+Stage 11 (third review's leaks by family, more shapes; `--runs 1` each):
+original 0.900 / 0.800 / 0.847, held-out 0.882 / 0.652 / 0.750, regression
+0.889 / 0.800 / 0.842, all unchanged; 0 secret leaks.
 
 Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
 tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
@@ -372,6 +376,62 @@ after these cases were written.
 Secret leaks were 0, but this set contains no fake secret, so that number says
 nothing here; secrets are covered by the leak tests and the held-out control.
 
+#### Handled forms (tested)
+
+Each row is one form the extraction filter masks before the model, with one
+exact example and a test that shows it. Test files are
+`tests/memory/test_extraction_<file>.py`. A form that is not in this table is
+not covered.
+
+| form | example | test |
+|---|---|---|
+| label + `is` / `was` | `the password is swordfish` | round3 `test_plain_word_password_in_every_shape_never_leaks` |
+| label + `=` / `:` | `client_secret = xyz`, `pwd: orange` | round3 `test_prefixless_secret_in_every_shape_never_leaks` |
+| up to 6 filler words before the connector | `The password for Harbor Log is now42abc.` | stage8 `test_filler_words_between_label_and_connector_are_masked` |
+| connectors `set to`, `equals`, `:` after filler | `the passcode for the front door set to 9a8b7c` | stage8 `test_filler_words_between_label_and_connector_are_masked` |
+| a value that starts with a status word | `The password is not-so-secret-42.` | stage8 `test_status_word_values_are_masked` |
+| value on the next line | `Trail Tracker password:\nmagnolia77` | stage9 `test_value_on_the_next_line_is_masked_and_withheld` |
+| value after blank lines (YAML) | `password:\n\n  amber22` | stage10 `test_yaml_value_after_blank_lines_is_masked_by_both_layers_and_withheld` |
+| NBSP, fullwidth `:` `=`, zero-width, Cyrillic а е о р с х, em dash, `->`, `will be` | `PASS\u200bWORD: indigo44` | stage9 `test_normalized_shapes_are_masked_and_withheld` |
+| more labels (pin, otp, 2fa code, cookie, seed phrase, credentials, mot de passe, contraseña, Passwort, 密码, パスワード, ...) | `the PIN is 4821` | stage9 `test_more_labels_are_masked_and_withheld` |
+| labels jwt, totp, hmac, license key | `license key: ABCD-1234-EFGH` | stage10 `test_common_shape_masks_only_the_secret` |
+| JSON / dict value | `{"password": "dahlia77"}` | stage9 `test_json_and_dict_values_are_masked_and_the_rest_kept` |
+| quoted value with `,` `;` `)` `\"` inside | `{"password": "alpha,beta99", "env": "prod"}` | stage10 `test_quoted_value_is_masked_through_the_closing_quote` |
+| value wrapped in `( )` `< >` or after `==` | `password is (orchid77) in prod.` | stage10 `test_wrapped_value_is_masked_with_its_wrapper` |
+| nested wrapper, up to 3 levels, `( ) < > [ ] { }` | `password is (outer(inner746)) in prod.` | stage11 `test_a_family_masks_the_value` |
+| Markdown or quoted label + connector | `**Password**: sycamore38` | stage10 `test_common_shape_masks_only_the_secret` |
+| Markdown or quoted label + filler | `**Password** for Trail Tracker is camellia981.` | stage11 `test_a_family_masks_the_value` |
+| URL userinfo | `postgres://admin:sycamore99@db.example.com:5432/prod` | stage9 `test_url_userinfo_is_masked_whole` |
+| URL query secret | `?api_key=lilac7x9&page=2` | stage9 `test_url_query_secrets_are_masked` |
+| URL query, `&` before a bracketed parameter | `?token=violet94&filter[a]=1` | stage10 `test_query_value_ends_at_ampersand_before_a_bracketed_parameter` |
+| base64 of 32+ characters, mixed case and digits | `Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg=` | stage9 `test_base64_candidates_are_masked` |
+| padded base64 after a label | `my token QWxhZGRpbjpvcGVu==` | stage9 `test_base64_candidates_are_masked` |
+| `Authorization: Bearer` | `Authorization: Bearer eyJhbGci...` | round3 `test_prefixless_secret_in_every_shape_never_leaks` |
+| JSON `Authorization` | `{"Authorization": "Token dogwood196"}` | stage11 `test_b_shape_masks_the_value` |
+| `Basic` token, 12+ characters without digits | `Basic YWFhOmFhYWFhYWFh` | stage11 `test_a_family_masks_the_value` |
+| SendGrid `SG.` token, whole | `SG.abcdefghijABCDEFGHIJ12.0123...` | stage10 `test_sendgrid_token_is_masked_whole` |
+| `glpat-`, `whsec_`, Azure SAS `sig=` | `glpat-AbCdEfGhIjKlMnOpQrSt12` | stage10 `test_common_shape_masks_only_the_secret` |
+| `pypi-`, `hvs.`, Discord-style three segments, `whsec_test_` | `hvs.CAESIJlU9XnE2Kq7Wn5bF3dP0aQ1` | stage11 `test_b_shape_masks_the_value` |
+| a token used as a filler word of a label match | `Webhook secret whsec_... is set` | stage10 `test_a_token_inside_the_filler_of_a_label_match_is_still_masked` |
+| curl `-u` / `--user` / `-b` / `--cookie` | `curl -u deploy:hazel71 https://...` | stage10 `test_common_shape_masks_only_the_secret` |
+| curl empty user, quoted with a space, attached | `curl -ubot:petunia525 https://...` | stage11 `test_a_family_masks_the_value` |
+| `redis-cli -a`, `mysql -p`, `--password=`, `sshpass -p` | `mysql -u admin -prowan66 shop` | stage10 `test_common_shape_masks_only_the_secret` |
+| those flags quoted or attached; `docker login -p` | `mysql -u admin -p'foxglove969' shop` | stage11 `test_a_family_masks_the_value` |
+| YAML `\|` / `>-` block scalar (first line) | `password: \|\n  spruce99` | stage10 `test_common_shape_masks_only_the_secret` |
+| YAML block scalar with an indentation indicator | `password: \|2\n  yew229` | stage11 `test_b_shape_masks_the_value` |
+| `with` / `using` + label + value with a digit or symbol | `Connect with password juniper89 to the staging box.` | stage10 `test_common_shape_masks_only_the_secret` |
+| `with` / `using` + label + quoted value | `Connect with password "lotus625" to staging.` | stage11 `test_a_family_masks_the_value` |
+| `login: user/PASS` | `login: admin/teak42` | stage10 `test_common_shape_masks_only_the_secret` |
+| `login: user / PASS` | `login: admin / teak141x` | stage11 `test_b_shape_masks_the_value` |
+| `changed / set / updated / reset / rotated the <label> to <value>` | `I changed the password to hawthorn41.` | stage11 `test_b_shape_masks_the_value` |
+| `<label>'s <value>`, `<label> as <value>` (value with a digit or symbol) | `Use the token as willow96.` | stage11 `test_b_shape_masks_the_value` |
+| glued upper-case name ending in PASSWORD / SECRET / TOKEN / KEY | `PGPASSWORD=spruce118 psql -h db.internal` | stage11 `test_b_shape_masks_the_value` |
+| JSON list under a plural key | `{"secrets": ["alder163", "birch174"]}` | stage11 `test_b_shape_masks_the_value` |
+| XML element | `<password>elm207</password>` | stage11 `test_b_shape_masks_the_value` |
+| `~~~` code fences cut like ``` | `~~~\npassword = fir23\n~~~` | stage10 `test_tilde_code_fence_is_stripped_like_backticks` |
+| what `redact_secrets` masks in the prompt is withheld | `Trail Tracker uses token=violet94&filter[a]=1 for search` | stage10 `test_every_value_redact_secrets_masks_in_the_prompt_is_withheld` |
+| a queued error message is scrubbed | invalid model output that quotes the value | stage9 `test_fuzz9_matrix_never_leaks_and_really_writes_the_queue` |
+
 #### Known gaps
 
 Every filter here is pattern-based and best-effort, not a guarantee. Known
@@ -400,26 +460,9 @@ gaps in the question, noise and secret rules:
   `test_over_masking_loss_is_counted_not_silent` and a strict xfail). The drop
   is counted in the extraction result's `dropped` total, not itemised. If the
   name appears anywhere else in the message, the node is kept.
-- **Secret masking (stages 8 to 10), what it covers.** A label (see the
-  list above), up to 6 filler words, a connector (`=`, `:`, `->`, `=>`, an
-  em or en dash, is, was, are, is now, set to, equals, will be; the value may
-  be up to 4 lines down, also after a YAML `|` or `>-`) and a value. A quoted
-  value runs to its matching closing quote, backslash escapes included; a
-  value wrapped in ( ) or < >, or written after `==`, is masked with its
-  wrapper. Also: JSON and dict values; Markdown or quoted labels
-  (`**Password**:`, `` `api_key`: ``); URL userinfo
-  (`postgres://user:pass@host`) and URL query secrets (`?api_key=`; `&` ends
-  a value only before another `name=`); curl `-u`/`--user` (the part after
-  `:`), `-b`/`--cookie` (the first value); `redis-cli -a`, `mysql -p`,
-  `--password=`, `sshpass -p`; "with password X" / "using token X" when X
-  has a digit or symbol; `login: user/PASS` (the part after `/`); SendGrid
-  `SG.` tokens, `glpat-`, `whsec_`, Azure SAS `sig=`; base64 tokens of 32+
-  characters with mixed case and digits; padded base64 after a label;
-  `Authorization`, `Bearer` and `Basic` tokens. Token shapes are matched in
-  a second pass too, so a token inside a label's filler words is masked.
-  Matching runs on a normalized copy (NFKC, zero-width characters removed,
-  Unicode spaces, Cyrillic а е о р с х), and the original text is masked.
-  `~~~` and ``` code fences are cut before the model.
+- **Secret masking, what it covers.** Only the forms in [Handled forms
+  (tested)](#handled-forms-tested). A form that is not in that table is not
+  covered, even if it looks similar.
 - **What "one rule set" means, exactly.** The extraction filter's own
   patterns (`quality.credential_spans`) drive the prompt mask, the withheld
   values and the node filter. The extraction prompt then also goes through
@@ -460,7 +503,7 @@ gaps in the question, noise and secret rules:
     Before each stage, its own matrix leaked on the code it replaced:
     stage 9's in 5,261 of 7,336 combinations, stage 10's in 4,063 of 5,193
     (on 98f6829, 32 labels).
-- **Still not handled after stage 10 (can store a secret).** All checked
+- **Still not handled after stage 11 (can store a secret).** All checked
   by running them, none in the test suite as a passing case:
   - a value split across two lines ("my password is crim" / "son42");
   - a value before its label ("crimson42 is my password");
@@ -475,6 +518,14 @@ gaps in the question, noise and secret rules:
   - labels that are not listed, such as "masterphrase", and labels in other
     languages that are not listed ("la clave es pino42", "das Kennwort ist
     tanne42");
+  - connectors other than the ones in the table above (for example "la
+    clave es x" uses "es", which is not a connector);
+  - a wrapper nested deeper than 3 levels ("(a(b(c(deep991))))");
+  - after a glued upper-case name, an unquoted value with a space
+    ("PGPASSWORD=blue sky42": only "blue" is masked);
+  - "<label>'s <value>" and "<label> as <value>" with a letters-only value
+    ("the password's swordfish");
+  - an unquoted item in a JSON-like list ('["x1y2z3", unquoted993]');
   - "with password swordfish" (letters only: not masked, so that "with
     password protection" stays);
   - `mysql -p PASS` with a space (mysql reads that as a prompt, so it is not
@@ -487,6 +538,8 @@ gaps in the question, noise and secret rules:
     header names were not tested;
   - spaced-out letters ("p a s s w o r d: birch42");
   - lookalike letters outside the small Cyrillic map (Greek ο in "pοssword").
+  - None of the third review's 14 inputs is still open: all are in the
+    table above (stage 11).
 - **Why best-effort.** Independent reviewers invented new bypasses quickly:
   the second review found about 45 leaks in 56 new inputs. That is why this
   is a best-effort filter and not a guarantee.
@@ -494,14 +547,17 @@ gaps in the question, noise and secret rules:
   connector and a value is masked and its node dropped. The longer label list
   makes this more common: "the token is valid for one hour", "the key point
   of Trail Tracker is speed", "the pass is valid until June", "auth is
-  handled by Auth0", "the cookie banner is ugly" all lose their value. `=` and
+  handled by Auth0", "the cookie banner is ugly" and "I set the token to
+  expire hourly" all lose their value, and a glued upper-case name ending in
+  KEY masks any value ("MONKEY=banana"). `=` and
   the next line after `:` are masked to the end of the clause.
 - A credential variable whose name is not on the suffix list, such as
   `LUMEN_KEY`, is stored as a name ("Rotate LUMEN_KEY for Lumen Budget"); its
   value is never stored. This is the price of keeping `PRIMARY_KEY`, and it is
   why the held-out control group dropped in round 3 (see the table).
-- **Gap 3 (open, tracked separately for stage 10; pre-existing, not changed
-  here):** the redaction layer (`room/memory/redact.py`, used by capture and the working
+- **Gap 3 (open; needs a decision).** Stage 10 added every substring
+  `redact_secrets` masks in the extraction prompt to the withheld values,
+  without changing redact.py. Gap 3 itself is not fixed: the redaction layer (`room/memory/redact.py`, used by capture and the working
   layer) only catches known token shapes and `label=value` pairs with 6+
   characters, so a prefix-less password ("the password is swordfish") in a
   working-layer transcript is not redacted there, and `working_search` (also
@@ -675,8 +731,9 @@ Raw and temporary, unlike the curated graph above.
   matches, nothing is written. That redaction (`room/memory/redact.py`) is a
   best-effort pattern filter: it misses a prefix-less password ("the
   password is swordfish"), which can then sit in a working note and be
-  returned by `working_search` (gap 3 in [Known gaps](#known-gaps), open,
-  tracked for stage 10). Sessions with fewer than 2 typed messages or
+  returned by `working_search` (gap 3 in [Known gaps](#known-gaps): still
+  open and needs a decision; stage 10 changed only the extraction side and
+  left redact.py unchanged). Sessions with fewer than 2 typed messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock
   keeps two sessions that end at the same time from clashing; a resumed session

@@ -58,7 +58,9 @@ flowchart LR
   - after each session, facts you state are extracted with Hermes into
     `~/.agent-room/memory.db`
   - secrets are masked first by a best-effort pattern filter (not a
-    guarantee; see [known gaps](docs/MEMORY.md#known-gaps))
+    guarantee): only the forms in [Handled forms
+    (tested)](docs/MEMORY.md#handled-forms-tested) are covered; see
+    [known gaps](docs/MEMORY.md#known-gaps)
   - output is checked against a strict JSON schema, with a repair prompt, an
     optional fallback agent and a retry queue
   - duplicates are merged; newer facts supersede older ones and history is kept
@@ -327,7 +329,8 @@ because `agy` has no end-of-session hook. A best-effort pattern filter
 redacts secrets before anything is written; it catches known token shapes and
 `label=value` pairs, not every password. A prefix-less password ("the password
 is swordfish") is not redacted in the working layer (gap 3 in the
-[known gaps](docs/MEMORY.md#known-gaps), tracked for stage 10). Notes expire after 14 days.
+[known gaps](docs/MEMORY.md#known-gaps); still open and needs a decision: stage 10 changed only
+the extraction side, and redact.py is unchanged). Notes expire after 14 days.
 
 - **Working layer** (`~/.agent-room/working/`): what was said in recent
   sessions, kept almost as it was (only your typed text and the assistant's
@@ -537,7 +540,7 @@ Keyword search has no notion of meaning; see the limits below.
     Corvid Analytics, what should I read?") is kept, a hypothetical one ("If I
     joined Google, ...") and the question itself are not. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
     times), 0.847 after the stricter secret masking of stage 8 (a single `--runs 1`
-    measurement; unchanged after stage 9). A 13-case held-out set, written before the fixes by the same author
+    measurement; unchanged after stages 9 and 10, and after stage 11). A 13-case held-out set, written before the fixes by the same author
     (a sanity check, not an independent benchmark): F1 0.649 before, 0.750
     after round 2, 0.769 after the round-2 review fixes, then 0.750 in round 3, because keeping words like "PRIMARY_KEY"
     also lets a note that names the variable `LUMEN_KEY` through (the name
