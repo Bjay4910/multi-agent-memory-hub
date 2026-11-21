@@ -114,6 +114,7 @@ _LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-
           rf"{_COMPOUND}")
 # Up to 6 words may sit between the label and the connector ("the password for Harbor Log is ...",
 # "the password (for prod) is ...", "the token for harbor.log is ..."); a word holds no clause or sentence end.
+_WRAP = r"[\"'`*]{0,2}"  # a label's closing wrapper: "**Password** for x is", "`api_key` for x ="
 _FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
 # The connector: "=", ":", "->", "=>", an em or en dash, "is", "was", "are", "is now", "set to", "is set to",
 # "equals", "is equal to", "will be", or 是 / は after a Chinese or Japanese label. A key in quotes may close
@@ -129,41 +130,70 @@ _CONNECT = (r"(?:[\"'`*]{0,2}[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:[|>][+-
 # quote before it is not part of it. There is no status-word exception: "the token is valid for one hour"
 # is masked too (security over recall), and this can over-mask the rest of a clause, which is accepted.
 _VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[^\s&=]+=)|[.!?](?:\s|$)|\n|$))"""
+def _balanced(open_: str, close: str, depth: int = 3) -> str:
+    """A span wrapped in ``open_`` ... ``close``, nested up to ``depth`` levels ("(outer(inner))")."""
+    o, c = re.escape(open_), re.escape(close)
+    inner = rf"[^{o}{c}\n]*"
+    for _ in range(depth - 1):
+        inner = rf"(?:[^{o}{c}\n]|{o}{inner}{c})*"
+    return rf"{o}{inner}{c}"
+
+
 # A quoted value runs to its matching closing quote, backslash escapes included, so , ; ) and \" inside it
-# do not end it ('{"password": "alpha,beta99"}'); only the inside is masked. A value wrapped in ( ) or < >,
-# or written after "=" signs ("==garnet55"), is masked with its wrapper. Otherwise the value is unquoted: it
+# do not end it ('{"password": "alpha,beta99"}'); only the inside is masked. A value wrapped in ( ) < > [ ] or
+# { }, nested up to 3 levels ("(outer(inner))"), or written after "=" signs ("==garnet55"), is masked with its
+# wrapper; [ and { followed by a quote open JSON, not a wrapper. Otherwise the value is unquoted: it
 # never starts with "=", so "my token QWxh==" is not read as filler "QWxh", connector "=", value "=".
 _CLAUSE = ("(?:"
            r'"(?P<{name}q1>(?:\\.|[^"\\\n])+)"'
            r"|'(?P<{name}q2>(?:\\.|[^'\\\n])+)'"
            r"|`(?P<{name}q3>(?:\\.|[^`\\\n])+)`"
-           r"|(?P<{name}w1>\([^()\n]+\))|(?P<{name}w2><[^<>\n]+>)"
+           rf"|(?P<{{name}}w1>{_balanced('(', ')')})|(?P<{{name}}w2>{_balanced('<', '>')})"
+           rf"|(?P<{{name}}w4>(?=\[(?![ \t]*[\"']))" + _balanced('[', ']') + ")"
+           rf"|(?P<{{name}}w5>(?=\{{(?![ \t]*[\"']))" + _balanced('{', '}') + ")"
            r"""|(?P<{name}w3>=+[^\s,;"'\)\]\}=][^\s,;"'\)\]\}]*)"""
            r"""|["'`]?(?P<{name}>[^\s,;"'`\)\]\}\{\[\(<=][^,;"'`\)\]\}\n]*?)""" + _VALUE_END + ")")
+def _flag_value(name: str) -> str:
+    """A command-line flag's value: "double quoted", 'single quoted' (the inside is masked) or bare."""
+    return (rf"""(?:"(?P<{name}q>(?:\\.|[^"\\\n])+)"|'(?P<{name}s>(?:\\.|[^'\\\n])+)'"""
+            rf"""|(?P<{name}>[^\s"']+))""")
+
+
 _TOKEN_VALUE = r"[A-Za-z0-9._~+/=-]*[A-Za-z0-9_~+/=-]"  # a header token; a trailing "." ends the sentence
 _B64_END = r"(?![A-Za-z0-9+/=_-])"
 _CREDENTIAL = re.compile(
-    rf"{_LABEL}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"          # the password for Harbor Log is x; KEY=x
+    rf"{_LABEL}{_WRAP}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"   # the password for Harbor Log is x; KEY=x
     rf"|{_LABEL}{_FILLER}[ \t]+(?P<h>[A-Za-z0-9+/]{{4,}}={{1,2}}){_B64_END}"  # my token QWxhZGRpbjpvcGVu==
     rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
     r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")"
     r"|\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})"                # SendGrid: the whole token
     r"|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})|\b(?P<wh>whsec_[A-Za-z0-9+/=]{16,})"   # GitLab PAT, webhook secret
     r"|[?&]sig=(?P<sas>[A-Za-z0-9%+/=]{8,})"                                    # Azure SAS signature
-    # curl -u user:PASS / --user user:PASS, -b 'name=VALUE' / --cookie (case-sensitive flags)
-    r"""|(?<!\S)(?-i:-u|--user)(?:[ \t]+|=)["']?[^\s:"']+:(?P<cu>[^\s"']+)"""
-    r"""|(?<!\S)(?-i:-b|--cookie)(?:[ \t]+|=)["']?[^\s=;"']+=(?P<ck>[^\s;"']+)"""
-    # redis-cli -a PASS, mysql -pPASS, --password=PASS / --password PASS, sshpass -p PASS
-    r"""|\bredis-cli\b[^\n]*?(?<!\S)(?-i:-a)[ \t]+["']?(?P<cr>[^\s"']+)"""
-    r"""|\bmysql(?:dump|admin)?\b[^\n]*?(?<!\S)(?-i:-p)(?P<cm>[^\s"']+)"""
-    r"""|(?<!\S)--password(?:=|[ \t]+)["']?(?P<cf>[^\s"']+)"""
-    r"""|\bsshpass\b[^\n]*?(?<!\S)(?-i:-p)[ \t]+["']?(?P<cs>[^\s"']+)"""
-    # "with password X" / "using token X": only a value with a digit or symbol ("with password protection" stays)
+    # curl -u [user]:PASS / --user, attached (-ubot:x) or quoted ("bot:a b"); -b / --cookie 'name=VALUE'
+    r'''|(?<!\S)(?-i:-u|--user)(?:[ \t]+|=)?"[^":\n]*:(?P<cuq>[^"\n]+)"'''
+    r"""|(?<!\S)(?-i:-u|--user)(?:[ \t]+|=)?'[^':\n]*:(?P<cus>[^'\n]+)'"""
+    r"""|(?<!\S)(?-i:-u|--user)(?:[ \t]+|=)?[^\s:"']*:(?P<cu>[^\s"']+)"""
+    r"""|(?<!\S)(?-i:-b|--cookie)(?:[ \t]+|=)?"[^=;"\n]+=(?P<ckq>[^;"\n]+)"""
+    r"""|(?<!\S)(?-i:-b|--cookie)(?:[ \t]+|=)?'[^=;'\n]+=(?P<cks>[^;'\n]+)"""
+    r"""|(?<!\S)(?-i:-b|--cookie)(?:[ \t]+|=)?[^\s=;"']+=(?P<ck>[^\s;"']+)"""
+    # redis-cli -a PASS, mysql -pPASS, docker login -p PASS, --password=PASS, sshpass -p PASS: each value may be
+    # quoted ('x', "a b") and attached (-p'x') or spaced
+    rf"""|\bredis-cli\b[^\n]*?(?<!\S)(?-i:-a)[ \t]+{_flag_value('cr')}"""
+    rf"""|\bmysql(?:dump|admin)?\b[^\n]*?(?<!\S)(?-i:-p){_flag_value('cm')}"""
+    rf"""|\bdocker[ \t]+login\b[^\n]*?(?<!\S)(?-i:-p)(?:[ \t]+)?{_flag_value('cd')}"""
+    rf"""|(?<!\S)--password(?:=|[ \t]+){_flag_value('cf')}"""
+    rf"""|\bsshpass\b[^\n]*?(?<!\S)(?-i:-p)(?:[ \t]+)?{_flag_value('cs')}"""
+    # "with password X" / "using token X": a quoted value, or an unquoted one with a digit or symbol
+    # ("with password protection" stays)
     rf"""|\b(?:with|using)[ \t]+(?:(?:the|a|an|my|our)[ \t]+)?{_LABEL}[ \t]+"""
-    r"""(?P<wu>(?=[^\s,;"']*[^A-Za-z\s,;"'])[^\s,;"']*[^\s,;"'.!?])"""
+    r"""(?:"(?P<wuq>(?:\\.|[^"\\\n])+)"|'(?P<wus>(?:\\.|[^'\\\n])+)'|`(?P<wub>[^`\n]+)`"""
+    r"""|(?P<wu>(?=[^\s,;"'`]*[^A-Za-z\s,;"'`])[^\s,;"'`]*[^\s,;"'`.!?]))"""
     # login: user/PASS (only the part after "/"; a bare login is a user name, not a secret)
     rf"""|\blogin{_FILLER}{_CONNECT}["']?[^\s/,;"']+/(?P<lg>[^\s,;"']*[^\s,;"'.!?])"""
-    rf"|\bbasic\s+(?P<f>(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}={{0,2}}){_B64_END}"  # Basic dXNlcjpw...
+    # Basic dXNlcjpw...: 8+ characters with a digit or "=", or 12+ with an uppercase letter after the first and a
+    # lowercase one ("Basic YWFhOmFhYWFhYWFh"; "Basic Authentication" stays)
+    rf"|\bbasic\s+(?P<f>(?:(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}"
+    rf"|(?-i:(?=[A-Za-z0-9+/][A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[a-z]))[A-Za-z0-9+/]{{12,}})={{0,2}}){_B64_END}"
     r"|\b[a-z][a-z0-9+.-]*://(?P<u>[^\s/@:\"'<>]*:[^\s/@\"'<>]+)(?=@)"  # postgres://admin:x@host (user:pass)
     rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}",  # a 32+ char token, checked below
     re.I)
@@ -317,7 +347,7 @@ def withheld_values(text: str) -> set[str]:
             values |= {source[s:e], norm}
             if kind == "u":  # the password part of user:pass on its own
                 values.add(norm.split(":", 1)[1])
-            if kind.startswith("a") and kind[1:2] == "q":  # a quoted value also as written unescaped
+            if "\\" in norm:  # a quoted value also as written unescaped
                 values.add(re.sub(r"\\(.)", r"\1", norm))
     # What redact_secrets masks in the extraction prompt is withheld too. The prompt is
     # redact_secrets(clean_message(text)); the masked text before clean_message drops lines is checked too.
@@ -326,7 +356,9 @@ def withheld_values(text: str) -> set[str]:
     visible = {w.strip(".,;:!?()<>='\"`").lower() for w in mask_credentials(prepared).split()}
     words = {w.strip(strip) for v in values for w in v.split() for strip in (".,;:!?()'\"", ".,;:!?()<>='\"`")}
     # and each piece of 5+ characters between punctuation ("post77" in pre\"post77, the id in SG.id.secret)
-    pieces = {p for v in values for p in re.split(r"[\s\"'\\,;:()<>=/@&.`]+", v) if len(p) >= 5}
+    pieces = {p for v in values for p in re.split(r"[\s\"'\\,;:()<>\[\]{}=/@&.`]+", v) if len(p) >= 5}
+    # inside a bracket-wrapped value, every piece of 3+ characters between brackets ("y179" in "<x<y179>>")
+    pieces |= {p for v in values if v[:1] in "(<[{" for p in re.split(r"[()<>\[\]{}]+", v) if len(p) >= 3}
     return (values | {w for w in words if len(w) >= 3 and w.lower() not in visible}
             | {p for p in pieces if p.lower() not in visible})
 
