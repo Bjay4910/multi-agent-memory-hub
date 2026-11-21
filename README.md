@@ -543,7 +543,7 @@ Keyword search has no notion of meaning; see the limits below.
     Corvid Analytics, what should I read?") is kept, a hypothetical one ("If I
     joined Google, ...") and the question itself are not. Original 7 cases: F1 0.808 to 0.839 (recall 0.900 both
     times), 0.847 after the stricter secret masking of stage 8 (a single `--runs 1`
-    measurement; unchanged after stages 9 and 10, and after stage 11). A 13-case held-out set, written before the fixes by the same author
+    measurement; unchanged after stages 9 and 10, and after stages 11 and 12). A 13-case held-out set, written before the fixes by the same author
     (a sanity check, not an independent benchmark): F1 0.649 before, 0.750
     after round 2, 0.769 after the round-2 review fixes, then 0.750 in round 3, because keeping words like "PRIMARY_KEY"
     also lets a note that names the variable `LUMEN_KEY` through (the name
@@ -641,7 +641,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 1,104 tests (counted with `pytest --collect-only`; 1,101 pass and 3 are expected failures, `xfail`, marking known gaps). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 1,133 tests (counted with `pytest --collect-only`; 1,130 pass and 3 are expected failures, `xfail`, marking known gaps). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

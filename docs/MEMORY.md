@@ -357,6 +357,11 @@ Stage 11 (third review's leaks by family, more shapes; `--runs 1` each):
 original 0.900 / 0.800 / 0.847, held-out 0.882 / 0.652 / 0.750, regression
 0.889 / 0.800 / 0.842, all unchanged; 0 secret leaks.
 
+Stage 12 (curly quotes, soft hyphen, composed ñ, CJK pieces, quoted value
+after a word; `--runs 1` each): original 0.900 / 0.800 / 0.847, held-out
+0.882 / 0.652 / 0.750, regression 0.889 / 0.800 / 0.842, all unchanged; 0
+secret leaks.
+
 Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
 tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
 control group dropped from 0.667 to 0.500: the node "Rotate LUMEN_KEY for
@@ -541,12 +546,16 @@ gaps in the question, noise and secret rules:
     with/using + quoted value, changed ... to, 's / as, XML, YAML |2, x 9
     shapes; plus 19 curl, CLI, env-name, login, JSON list / Authorization,
     Basic and token families). 1,797 really write `memory_queue`.
+  - Stage 12 adds no fuzz test; its 11 cases and 6 false positives are
+    exact tests (`len(C_CASES)`, `len(C_FALSE_POSITIVES)`), each run with
+    valid and with queued output. The four fuzz counts above were measured
+    again after stage 12 and did not change.
   - All four report 0 leaks. None creates a session log: extraction never
     writes one, and session logs belong to the working layer (gap 3 below).
     Before each stage, its own matrix leaked on the code it replaced:
     stage 9's in 5,261 of 7,336 combinations, stage 10's in 4,063 of 5,193
     (on 98f6829, 32 labels), stage 11's in 4,562 of 5,391 (on 0e057e4).
-- **Still not handled after stage 11 (can store a secret).** All checked
+- **Still not handled after stage 12 (can store a secret).** All checked
   by running them, none in the test suite as a passing case:
   - a value split across two lines ("my password is crim" / "son42");
   - a value before its label ("crimson42 is my password");
@@ -583,9 +592,52 @@ gaps in the question, noise and secret rules:
   - lookalike letters outside the small Cyrillic map (Greek ο in "pοssword").
   - None of the third review's 14 inputs is still open: all are in the
     table above (stage 11).
-- **Why best-effort.** Independent reviewers invented new bypasses quickly:
-  the second review found about 45 leaks in 56 new inputs. That is why this
-  is a best-effort filter and not a guarantee.
+- **Fourth review: variants of verified shapes that are not verified
+  themselves.** Each was run on 236d2a3 through the real extraction path
+  (a hostile scripted model, once with valid output and once with invalid
+  output so the session is queued, every file under the home scanned), and
+  each still reaches the prompt or a stored node, `memory.db` and
+  `memory_queue`. None of them is in the verified table:
+  - a blank line after a word connector: "The password is\n\n  jasper888"
+    (word connectors allow only 1 newline);
+  - a space after `==`: "My pwd == osprey223";
+  - Markdown italics with underscores: "\_Password\_: wren101";
+  - `blob=` followed by base64 containing `/` `+` `=`
+    ("blob=Ab3dEf7gHi9j/Kl1mNo3pQ+r5sTu7vWx9yZ==");
+  - unpadded-looking base64 after a label without a connector: "My api key
+    for prod YWRtaW46cGFzc3dvcmQ= works." and "My token
+    YWRtaW46cGFzc3dvcmQ= works.";
+  - quoted base64 after a label: 'My token "ZGVwbG95OnNlY3JldA==" is
+    active.';
+  - `redis-cli -a` attached: "redis-cli -a'macaw215'" and
+    "redis-cli -atoucan326";
+  - a backticked label before `to`: "I set the \`password\` to almond762";
+  - a quoted value after `as` or `'s`: 'Use the token as "filbert107"',
+    "The password's 'chestnut218'";
+  - an underscore earlier in a glued name: "export
+    PROD_PGPASSWORD=buzzard763";
+  - a JSON list under "secrets" spread over several lines;
+  - XML with attributes or with the value on its own line:
+    '<password type="prod">plover639</password>',
+    "<password>\n  puffin740\n</password>", and CDATA
+    ("<password><![CDATA[lapwing962]]></password>");
+  - a quoted Basic token: 'Uses Basic "YWRtaW5AbG9jYWw6c2VjcmV0"';
+  - curl with a single-quoted password only: "curl -u admin:'sable436'";
+  - a modifier word before the label in "reset / changed ... to": "I reset
+    the staging password to 'walnut540'", 'I changed prod password to
+    "dewberry435"';
+  - JSON Authorization with a scheme other than Bearer, Basic or Token:
+    '{"Authorization": "ApiKey tamarind982"}';
+  - a comment after a YAML block indicator: "password: | # prod";
+  - "their" or "your" before the label after with / using: 'Connect with
+    their password "tayberry324"' (only the, a, an, my, our are allowed).
+- **Why best-effort, and why only exact forms are claimed.** Independent
+  reviewers invented new bypasses quickly: the second review found about 45
+  leaks in 56 new inputs, and each later round found about 30 new variants
+  of shapes that were already handled (the fourth review found 21 leaks in
+  forms the docs claimed). That is why this is a best-effort filter and not
+  a guarantee, and why since stage 12 only the exact verified examples in
+  [Handled forms (tested)](#handled-forms-tested) are claimed.
 - **Recall cost (security over recall).** A sentence that matches the rule
   (a label, a connector and a value) is masked and its node dropped. The longer label list
   makes this more common: "the token is valid for one hour", "the key point
