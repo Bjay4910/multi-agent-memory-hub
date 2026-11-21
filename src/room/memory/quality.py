@@ -129,7 +129,7 @@ _CONNECT = (r"(?:[\"'`*]{0,2}[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:[|>][0-
 # ends at a quote, a closing bracket, or "&" before another URL parameter ("?api_key=x&v=1"); an opening
 # quote before it is not part of it. There is no status-word exception: "the token is valid for one hour"
 # is masked too (security over recall), and this can over-mask the rest of a clause, which is accepted.
-_VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[^\s&=]+=)|[.!?](?:\s|$)|\n|$))"""
+_VALUE_END = r"""(?=[ \t]*(?:[,;"\)\]\}]|(?<![A-Za-z])'|'(?![A-Za-z])|&(?=[^\s&=]+=)|[.!?](?:\s|$)|\n|$))"""
 def _balanced(open_: str, close: str, depth: int = 3) -> str:
     """A span wrapped in ``open_`` ... ``close``, nested up to ``depth`` levels ("(outer(inner))")."""
     o, c = re.escape(open_), re.escape(close)
@@ -152,7 +152,10 @@ _CLAUSE = ("(?:"
            rf"|(?P<{{name}}w4>(?=\[(?![ \t]*[\"']))" + _balanced('[', ']') + ")"
            rf"|(?P<{{name}}w5>(?=\{{(?![ \t]*[\"']))" + _balanced('{', '}') + ")"
            r"""|(?P<{name}w3>=+[^\s,;"'\)\]\}=][^\s,;"'\)\]\}]*)"""
-           r"""|["'`]?(?P<{name}>[^\s,;"'`\)\]\}\{\[\(<=][^,;"'`\)\]\}\n]*?)""" + _VALUE_END + ")")
+           # one or two words, then a quoted value ('is really "x"', 'to be "x"'): the words and the value
+           r"""|(?P<{name}q4>(?:[^\s,;"'`\)\]\}\{\[\(<=]+[ \t]+){1,2}(?:"(?:\\.|[^"\\\n])+"|'(?:\\.|[^'\\\n])+'))"""
+           r"""|["'`]?(?P<{name}>[^\s,;"'`\)\]\}\{\[\(<=](?:[^,;"'`\)\]\}\n]|(?<=[A-Za-z])'(?=[A-Za-z]))*?)"""
+           + _VALUE_END + ")")
 def _flag_value(name: str) -> str:
     """A command-line flag's value: "double quoted", 'single quoted' (the inside is masked) or bare."""
     return (rf"""(?:"(?P<{name}q>(?:\\.|[^"\\\n])+)"|'(?P<{name}s>(?:\\.|[^'\\\n])+)'"""
@@ -218,12 +221,15 @@ _TOKEN_SHAPES = re.compile(
     r"|(?<![A-Za-z0-9_.-])(?P<dc>[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,64})(?![A-Za-z0-9_-])"
     rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}")
 
-# Matching runs on a normalized copy (NFKC, so fullwidth : and = become ASCII; zero-width characters
-# removed; every Unicode space a space; a few Cyrillic lookalikes as Latin letters). Spans map back to the
-# original, which is what gets masked; the normalized copy is never stored.
-_ZERO_WIDTH = frozenset("\u200b\u200c\u200d\u2060\ufeff")
+# Matching runs on a normalized copy, built one character at a time: NFKC per character (fullwidth : and =
+# become ASCII); zero-width characters and the soft hyphen removed; every Unicode space a space; a few
+# Cyrillic lookalikes as Latin letters; curly quotes as ASCII quotes; and a combining mark composed with the
+# character before it when NFC gives one character (n + U+0303 -> ñ). Spans map back to the original, which
+# is what gets masked; the normalized copy is never stored.
+_ZERO_WIDTH = frozenset("\u200b\u200c\u200d\u2060\ufeff\u00ad")
 _LOOKALIKE = {"\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0445": "x",
-              "\u0410": "A", "\u0415": "E", "\u041e": "O", "\u0420": "P", "\u0421": "C", "\u0425": "X"}
+              "\u0410": "A", "\u0415": "E", "\u041e": "O", "\u0420": "P", "\u0421": "C", "\u0425": "X",
+              "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'}  # curly quotes, for matching only
 
 
 def _normalized(text: str) -> tuple[str, "list[int] | range"]:
@@ -234,11 +240,26 @@ def _normalized(text: str) -> tuple[str, "list[int] | range"]:
     for i, ch in enumerate(text):
         if ch in _ZERO_WIDTH:
             continue
+        if unicodedata.combining(ch) and out:  # n + U+0303 -> ñ, when NFC gives one character
+            composed = unicodedata.normalize("NFC", out[-1] + ch)
+            if len(composed) == 1:
+                out[-1] = composed
+                continue
         norm = _LOOKALIKE.get(ch) or unicodedata.normalize("NFKC", ch)
         for c in norm:
             out.append(" " if unicodedata.category(c) == "Zs" else c)
             origin.append(i)
     return "".join(out), origin
+
+
+def _end(text: str, origin: "list[int] | range", e: int) -> int:
+    """The original end of a match that ends before normalized index ``e``, past any combining mark that was
+    composed into its last character."""
+    i = origin[e - 1] + 1
+    limit = origin[e] if e < len(origin) else len(text)  # characters before ``limit`` were folded away
+    while i < limit and unicodedata.combining(text[i]):
+        i += 1
+    return i
 
 
 def _looks_random(token: str) -> bool:
@@ -271,14 +292,14 @@ def _credential_matches(text: str) -> list[tuple[int, int, str, str]]:
                 g = 1 if item.group(1) is not None else 2
                 s, e = start + item.start(g), start + item.end(g)
                 if item.group(g) != "[REDACTED]":
-                    found.append((origin[s], origin[e - 1] + 1, item.group(g), kind))
+                    found.append((origin[s], _end(text, origin, e), item.group(g), kind))
             continue
-        found.append((origin[start], origin[end - 1] + 1, value, kind))
+        found.append((origin[start], _end(text, origin, end), value, kind))
     for m in _TOKEN_SHAPES.finditer(norm):
         kind = next(k for k, v in m.groupdict().items() if v)
         if kind == "g" and not _looks_random(m.group(kind)):
             continue
-        start, end = origin[m.start(kind)], origin[m.end(kind) - 1] + 1
+        start, end = origin[m.start(kind)], _end(text, origin, m.end(kind))
         if not any(s <= start and end <= e for s, e, _, _ in found):
             found.append((start, end, m.group(kind), kind))
     return sorted(found)
@@ -355,6 +376,13 @@ def premask_text(text: str) -> str:
     return _QUOTE_MARK.sub("", _FENCE.sub("\n", text or ""))
 
 
+# Withheld values are also split into pieces at whitespace, these characters, and each boundary between a CJK run
+# and a Latin letter or digit run ("plum994" in 我的密码是plum994别告诉别人).
+_CJK = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff66-\uff9f"
+_PIECE_SPLIT = re.compile(r"[\s\"'\\,;:()<>\[\]{}=/@&.`#\u201c\u201d\u2018\u2019]+"
+                          rf"|(?<=[{_CJK}])(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])(?=[{_CJK}])")
+
+
 def withheld_values(text: str) -> set[str]:
     """Every credential value the mask takes out of ``text`` (found on the raw text and on the text
     clean_message masks, with the same rules), every substring redact_secrets masks in the extraction prompt,
@@ -376,7 +404,7 @@ def withheld_values(text: str) -> set[str]:
     visible = {w.strip(".,;:!?()<>='\"`").lower() for w in mask_credentials(prepared).split()}
     words = {w.strip(strip) for v in values for w in v.split() for strip in (".,;:!?()'\"", ".,;:!?()<>='\"`")}
     # and each piece of 5+ characters between punctuation ("post77" in pre\"post77, the id in SG.id.secret)
-    pieces = {p for v in values for p in re.split(r"[\s\"'\\,;:()<>\[\]{}=/@&.`]+", v) if len(p) >= 5}
+    pieces = {p for v in values for p in _PIECE_SPLIT.split(v) if len(p) >= 5}
     # inside a bracket-wrapped value, every piece of 3+ characters between brackets ("y179" in "<x<y179>>")
     pieces |= {p for v in values if v[:1] in "(<[{" for p in re.split(r"[()<>\[\]{}]+", v) if len(p) >= 3}
     return (values | {w for w in words if len(w) >= 3 and w.lower() not in visible}

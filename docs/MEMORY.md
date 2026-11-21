@@ -193,11 +193,14 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
      no newline is allowed. Matching runs on a normalized copy, built one
      character at a time: each character goes through NFKC on its own
      (fullwidth `：` becomes `:`), the zero-width characters U+200B, U+200C,
-     U+200D, U+2060 and U+FEFF are removed, every Unicode space becomes a
-     space, and Cyrillic а е о р с х (and capitals) become Latin. Because
-     NFKC runs per character, a decomposed sequence (n followed by U+0303)
-     is not composed to ñ, so "contrasen\u0303a" does not match the label
-     contraseña. The original text is what gets masked. A filler word holds
+     U+200D, U+2060 and U+FEFF and the soft hyphen U+00AD are removed, every
+     Unicode space becomes a space, Cyrillic а е о р с х (and capitals)
+     become Latin, and curly quotes ’ ‘ “ ” become ASCII `'` and `"`. NFKC
+     runs per character, so a combining mark is composed with the character
+     before it only when NFC of that pair gives one character (n + U+0303
+     becomes ñ, so "contrasen\u0303a" matches contraseña; since stage 12);
+     marks are composed pairwise in written order, not reordered first. The
+     original text is what gets masked. A filler word holds
      no `,` `;` `:` `=` `!` `?` and no `.` except inside a name. There is no
      status-word exception (stage 8): "The password is not-so-secret-42" and
      "the token is valid for one hour" are both masked; losing the second
@@ -233,12 +236,14 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    extraction prompt; each word of those (split at whitespace, with
    `. , ; : ! ? ( ) ' "` and also `< > = `` ` `` stripped from its ends) of
    3+ characters that does not appear in the masked text the model sees;
-   each piece of 5+ characters after splitting at whitespace and
-   `" ' \ , ; : ( ) < > [ ] { } = / @ & .` and `` ` ``, again only if the
-   model never sees it; and, for a value that starts with a bracket, each
-   piece of 3+ characters between brackets. A value glued to other text by
-   any other character (`#`, curly quotes, CJK characters) is withheld only
-   as a whole. The same name
+   each piece of 5+ characters after splitting at whitespace,
+   `" ' \ , ; : ( ) < > [ ] { } = / @ & . #`, `` ` ``, curly quotes ’ ‘ “ ”
+   and every boundary between a CJK run (kana, CJK ideographs, Hangul,
+   half-width katakana) and a Latin letter or digit run (since stage 12:
+   "plum994" in "我的密码是plum994别告诉别人"), again only if the model
+   never sees it; and, for a value that starts with a bracket, each piece
+   of 3+ characters between brackets. A value glued to other text by any
+   other character is withheld only as a whole. The same name
    twice in one output is stored once, and a fact the graph already holds under
    another name (same type, every sentence sharing at least 80% of its words) is
    not added again. Links to a dropped node are dropped. A "Me" node is always a
@@ -456,6 +461,9 @@ generates it.)
 | glued upper-case env name | `PGPASSWORD=spruce118 psql -h db.internal`; `export MYPASSWORD='cedar129'`; `GITHUB_TOKEN=ghxfake130` | stage11 `test_b_shape_masks_the_value` |
 | one-line JSON list under a plural key | `{"secrets": ["alder163", "birch174"]}`; `{"api_keys": ["cedar185"]}` | stage11 `test_b_shape_masks_the_value` |
 | one-line XML element without attributes | `<password>elm207</password>`; `<api_key>fir218</api_key>` | stage11 `test_b_shape_masks_the_value` |
+| value glued to CJK text, in curly quotes, or before `#` (withheld piece) | `我的密码是plum994别告诉别人`; `私のパスワードはsakura105です`; `My password is “mango993” for staging`; `https://svc.example.com?access_key=jay213#frag` | stage12 `test_c_case_is_masked_and_withheld` |
+| curly apostrophe, soft hyphen in the label, decomposed ñ in the label | `The password’s acorn329 for staging.`; `pass\u00adword: papaya104`; `La contrasen\u0303a: canela883.`; `pwd: rose\u0301x77` | stage12 `test_c_case_is_masked_and_withheld` |
+| one word then a quoted value; `to be` then a quoted value; an apostrophe between letters in the value | `My password is really "cranberry769" for CI.`; `I set my password to be "cranberry769" for CI.`; `My password is o'brien882 for prod.` | stage12 `test_c_case_is_masked_and_withheld` |
 | `~~~` code fence cut like ``` | `My config:\n~~~\npassword = fir23\n~~~\nTrail Tracker deploys nightly.` | stage10 `test_tilde_code_fence_is_stripped_like_backticks` |
 | what `redact_secrets` masks in the prompt is withheld | `https://api.example.com/search?token=violet94&filter[a]=1` | stage10 `test_every_value_redact_secrets_masks_in_the_prompt_is_withheld` |
 | a queued error message is scrubbed | the stage-9 fuzz combinations with invalid model output | stage9 `test_fuzz9_matrix_never_leaks_and_really_writes_the_queue` |
