@@ -418,8 +418,8 @@ only ([Handled forms (tested)](#handled-forms-tested)).
 #### Handled forms (tested)
 
 Verified means: these exact examples, with only the secret value changed to
-another value of the same kind and at least the row's minimum length (shown
-in the table). Rows with no minimum were checked at 4, 10 and 24 characters.
+another value of the same kind, at least the row's minimum length and within
+its case limit (both shown in the table). Rows with no minimum were checked at 4, 10 and 24 characters.
 Other variants of the same shape (different quoting, spacing, extra words,
 Unicode forms, line breaks) may or may not be masked and are not verified.
 
@@ -451,8 +451,8 @@ generates it.)
 | URL query secret (params api_key, auth, token, password, secret, key) | `https://api.example.com/v2/items?api_key=lilac7x9&page=2` | stage9 `test_url_query_secrets_are_masked` | none |
 | URL query, `&` before a bracketed parameter | `https://api.example.com/search?token=violet94&filter[a]=1` | stage10 `test_query_value_ends_at_ampersand_before_a_bracketed_parameter` | none |
 | base64 of 32+ characters, mixed case and digits | `Trail Tracker uses Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg= for sync.` | stage9 `test_base64_candidates_are_masked` | 32+ base64 characters, with an upper-case letter, a lower-case letter and a digit |
-| padded base64 after a label | `my token QWxhZGRpbjpvcGVu== for Trail Tracker`; `auth header: Basic dXNlcjpwYXNzd29yZDEyMw==` | stage9 `test_base64_candidates_are_masked` | 4+ base64 characters before the `=` / `==`; the `Basic` example: as in row 24 |
-| `=` / `==` padded base64 under 32 characters after a label, with or without words after it | `my token YWRtaW46cGFzc3dvcmQ= for Trail Tracker`; `my token YWJjZGU= for Trail Tracker`; `my api key Zm9vYmFyOTk= for Trail Tracker`; `my secret c2VjcmV0S2V5MQ== for Trail Tracker`; `my token YWRtaW46cGFzc3dvcmQ=`; `my token YWJjZGU=`; `my api key Zm9vYmFyOTk=`; `my secret c2VjcmV0S2V5MQ==` | stage13 `test_a_case_is_masked_and_withheld` | 4+ base64 characters before the `=` / `==` |
+| padded base64 after a label | `my token QWxhZGRpbjpvcGVu== for Trail Tracker`; `auth header: Basic dXNlcjpwYXNzd29yZDEyMw==` | stage9 `test_base64_candidates_are_masked` | `==` padding (both examples): 4+ base64 characters before it, any case; the `Basic` example: as in row 24. Single `=`: see the next row |
+| `=` / `==` padded base64 under 32 characters after a label, with or without words after it | `my token YWRtaW46cGFzc3dvcmQ= for Trail Tracker`; `my token YWJjZGU= for Trail Tracker`; `my api key Zm9vYmFyOTk= for Trail Tracker`; `my secret c2VjcmV0S2V5MQ== for Trail Tracker`; `my token YWRtaW46cGFzc3dvcmQ=`; `my token YWJjZGU=`; `my api key Zm9vYmFyOTk=`; `my secret c2VjcmV0S2V5MQ==` | stage13 `test_a_case_is_masked_and_withheld` | `==`: 4+ base64 characters before it, any case. Single `=` with words or a line after it: 4+ characters before it, mixed case only (an upper-case letter after the first character and a lower-case letter); all lower-case, all upper-case or capitalised-only values are not masked there (stage 15 known gap). Single `=` at the end of the message: 4+, any case |
 | `Authorization: Bearer` | `Authorization: Bearer eyJhbGci...` (the round3 fixture) | round3 `test_prefixless_secret_in_every_shape_never_leaks` | none |
 | JSON `Authorization` with `Token` | `{"Authorization": "Token dogwood196"}` | stage11 `test_b_shape_masks_the_value` | none |
 | `Basic` token of 12+ characters without digits | `curl sends Basic YWFhOmFhYWFhYWFh to the API`; `header: Basic dXNlclBhc3NXb3Jk`; `send basic QWxhZGRpbkJvYmJ5 now` | stage11 `test_a_family_masks_the_value` | 8+ base64 characters (not counting `=`) if one is a digit or `=` padding follows; otherwise 12+, with an upper-case letter after the first character and a lower-case letter |
@@ -530,8 +530,8 @@ gaps in the question, noise and secret rules:
   name appears anywhere else in the message, the node is kept.
 - **Secret masking, what it covers.** Verified forms only: the exact
   examples in [Handled forms (tested)](#handled-forms-tested), with only the
-  secret value changed to another value of the same kind and at least the
-  row's minimum length. A form that is not in that table is not covered,
+  secret value changed to another value of the same kind, at least the
+  row's minimum length and within its case limit. A form that is not in that table is not covered,
   even if it looks similar.
 - **What "one rule set" means, exactly.** The extraction filter's own
   patterns (`quality.credential_spans`) drive the prompt mask, the withheld
@@ -679,6 +679,24 @@ gaps in the question, noise and secret rules:
   forms is not covered. The minimums are in the table's "minimum length"
   column. The substitution check above did not re-test values with special
   characters or spaces.
+- **Single-`=` base64 in one case after a label (stage 15).** A value with
+  one `=` of padding that is all lower-case, all upper-case, or capitalised
+  only at the start, directly after a label and followed by more words or
+  another line, is not masked: its `=` is read as the connector and the
+  words after it are masked instead. Checked: "my token enp6eno= for Trail
+  Tracker", "my token enp6enp6eno= for Trail Tracker", "my token QUFBQUE=
+  for Trail Tracker", "my token Abcdefg= for Trail Tracker" and "my token
+  enp6eno=" followed by a line "Trail Tracker deploys nightly." all leak to
+  the prompt, a stored node and `memory_queue`, and so do 8-, 12- and
+  20-character values of each case (`tests/memory/test_extraction_stage15.py`,
+  33 strict xfails). Shorter one-case values (4 to 6 characters before the
+  `=`, "my token abcd= for Trail Tracker") leak the same way. Not affected:
+  `==` padding in any case, a single `=` at the end of the message, mixed-case
+  values (row 21), and a value after a real connector ("api key is
+  enp6eno= ...", "secret: ...", "password is ..."). The fix that was tried,
+  treating 7+ base64 characters plus a single `=` directly after a label as
+  the secret, also captured real filler words ("api key staging= x") and
+  made the stage 9 fuzz leak in 64 combinations, so it was not applied.
 - **Fifth review: more variants, not in the verified table.** Each was run
   on the stage 13 code through the real extraction path (hostile scripted
   model, valid and queued output, every file scanned). Still leak (prompt

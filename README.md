@@ -60,8 +60,8 @@ flowchart LR
   - secrets are masked first by a best-effort pattern filter (not a
     guarantee), verified forms only: the exact examples in [Handled forms
     (tested)](docs/MEMORY.md#handled-forms-tested), with only the secret
-    value changed to another value of the same kind and at least the row's
-    minimum length; other variants of the same shapes are not verified. See [known gaps](docs/MEMORY.md#known-gaps)
+    value changed to another value of the same kind, at least the row's
+    minimum length and within its case limit; other variants of the same shapes are not verified. See [known gaps](docs/MEMORY.md#known-gaps)
   - output is checked against a strict JSON schema, with a repair prompt, an
     optional fallback agent and a retry queue
   - duplicates are merged; newer facts supersede older ones and history is kept
@@ -642,7 +642,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 1,161 tests (counted with `pytest --collect-only`; 1,158 pass and 3 are expected failures, `xfail`, marking known gaps). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 1,217 tests (counted with `pytest --collect-only`; 1,181 pass and 36 are expected failures, `xfail`, marking known gaps: 3 earlier ones and 33 strict ones for the stage 15 single-`=` base64 gap). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
