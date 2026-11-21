@@ -148,6 +148,10 @@ def graph(cfg: Config, params: dict) -> dict:
 
 
 def node(cfg: Config, params: dict, node_id: int) -> dict:
+    flag = _one(params, "neighbor_status")
+    if flag not in (None, "0", "1"):
+        raise BadRequest("neighbor_status must be 0 or 1")
+    with_status = flag == "1"  # opt-in, so the default response keeps its exact shape
     with open_memory(cfg.db_path) as store:
         n = store.get_node(node_id)
         if n is None:
@@ -155,7 +159,8 @@ def node(cfg: Config, params: dict, node_id: int) -> dict:
         provenance = [{"agent": r["agent"], "session_id": r["session_id"], "source": r["source"], "ts": r["ts"]}
                       for r in store.provenance(node_id)]
         neighbors = [{"id": other.id, "name": other.name, "type": other.type, "relation": edge.relation,
-                      "direction": "out" if edge.src == node_id else "in"} for edge, other in store.edges_of(node_id)]
+                      "direction": "out" if edge.src == node_id else "in",
+                      **({"status": other.status} if with_status else {})} for edge, other in store.edges_of(node_id)]
     return {
         "id": n.id, "type": n.type, "name": n.name, "summary": n.summary,
         "aliases": [a for a in n.aliases.split("|") if a], "status": n.status, "confidence": n.confidence,
@@ -298,12 +303,30 @@ class Handler(BaseHTTPRequestHandler):
         return handler(self.config, params)
 
 
-def make_server(host: str, port: int, *, db_path: Path, presence_dir: Path, mode: str = "local") -> ThreadingHTTPServer:
-    """A server bound to 127.0.0.1 (any other ``host`` is refused); ``port`` 0 picks a free one."""
+DEMO_SETS = ("small", "rich")
+
+
+def make_server(host: str, port: int, *, db_path: Path | None = None, presence_dir: Path | None = None,
+                mode: str = "local", demo_set: str = "small") -> ThreadingHTTPServer:
+    """A server bound to 127.0.0.1 (any other ``host`` is refused); ``port`` 0 picks a free one.
+
+    In demo mode without a ``db_path``, a new temp home is built with ``demo_set`` ("small", the default, or
+    "rich") and served; the real home is never read."""
     if host != BIND_HOST:
         raise ValueError(f"the dashboard API binds {BIND_HOST} only, not {host!r}")
     if mode not in ("local", "demo"):
         raise ValueError(f"unknown mode {mode!r}")
+    if demo_set not in DEMO_SETS:
+        raise ValueError(f"unknown demo set {demo_set!r}; use one of {', '.join(DEMO_SETS)}")
+    if db_path is None:
+        if mode != "demo":
+            raise ValueError("db_path is required outside demo mode")
+        if port and _answers(port):  # before a demo home is created
+            raise PortInUse(port)
+        home = demo_home(demo_set)
+        db_path, presence_dir = home / "memory.db", home / "presence"
+    if presence_dir is None:
+        presence_dir = Path(db_path).parent / "presence"
     if port and _answers(port):
         raise PortInUse(port)
     try:
@@ -318,23 +341,26 @@ def make_server(host: str, port: int, *, db_path: Path, presence_dir: Path, mode
     return server
 
 
-def demo_home() -> Path:
-    """A new temp home holding the made-up demo dataset."""
+def demo_home(demo_set: str = "small") -> Path:
+    """A new temp home holding a made-up demo dataset: "small" (room.memory.demo) or "rich" (demo_data)."""
     from ..memory.demo import load_demo
+    from .demo_data import load_rich_demo
 
+    if demo_set not in DEMO_SETS:
+        raise ValueError(f"unknown demo set {demo_set!r}")
     home = Path(tempfile.mkdtemp(prefix="agent-room-dashboard-demo-"))
-    load_demo(home).close()
+    (load_rich_demo if demo_set == "rich" else load_demo)(home).close()
     return home
 
 
-def serve(port: int = DEFAULT_PORT, demo: bool = False, host: str = BIND_HOST) -> int:
+def serve(port: int = DEFAULT_PORT, demo: bool = False, host: str = BIND_HOST, demo_set: str = "rich") -> int:
     """Run until interrupted. Demo mode serves a temp copy of the demo dataset and never reads the real home."""
     if host != BIND_HOST:
         raise ValueError(f"the dashboard API binds {BIND_HOST} only, not {host!r}")
     if port and _answers(port):  # before a demo home is created
         raise PortInUse(port)
     if demo:
-        home = demo_home()
+        home = demo_home(demo_set)
         os.environ["AGENT_ROOM_HOME"] = str(home)  # anything that asks for the home gets the temp one
         db_path, presence_dir, mode = home / "memory.db", home / "presence", "demo"
     else:

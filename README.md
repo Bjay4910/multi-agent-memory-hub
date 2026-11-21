@@ -606,7 +606,9 @@ GET only) and the page in `ui/` (Vite + React + three.js, everything bundled;
 it makes no requests to other hosts). Only the Memory Graph view is built so
 far.
 
-With the made-up demo data (nothing from your real memory is read):
+With made-up demo data (nothing from your real memory is read). `--demo`
+serves a richer fictional set of about 120 facts over three months;
+`--demo --demo-set small` serves the small set from `room memory demo`:
 
 ```bash
 room dashboard-api --demo

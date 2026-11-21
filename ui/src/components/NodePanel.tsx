@@ -2,6 +2,7 @@
 
 import { colorForType } from "../graphData";
 import type { NodeDetail } from "../focus";
+import { neighborView } from "../neighborView";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -43,15 +44,19 @@ export function NodePanel({ node, onSelect, onClose }: Props) {
         <h3>Linked to</h3>
         {node.neighbors.length === 0 ? <p className="muted">No links.</p> : (
           <ul className="neighbors">
-            {node.neighbors.map((n, i) => (
-              <li key={`${n.id}-${n.relation}-${i}`}>
-                <span className="relation">{n.direction === "out" ? `${n.relation} →` : `← ${n.relation}`}</span>
-                <button type="button" className="link-button" data-neighbor={n.id} onClick={() => onSelect(n.id)}>
-                  <span className="dot" style={{ background: colorForType(n.type) }} />
-                  {n.name}
-                </button>
-              </li>
-            ))}
+            {node.neighbors.map((n, i) => {
+              const view = neighborView(n);
+              return (
+                <li key={`${n.id}-${n.relation}-${i}`} className={view.dimmed ? "dimmed" : undefined}>
+                  <span className="relation">{n.direction === "out" ? `${n.relation} →` : `← ${n.relation}`}</span>
+                  <button type="button" className="link-button" data-neighbor={n.id} onClick={() => onSelect(n.id)}>
+                    <span className="dot" style={{ background: colorForType(n.type) }} />
+                    {n.name}
+                    {view.tag && <span className="status-tag">{view.tag}</span>}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

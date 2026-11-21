@@ -12,6 +12,6 @@ export default defineConfig({
     proxy: { "/api": { target: "http://127.0.0.1:8766", changeOrigin: true } },
   },
   preview: { host: "127.0.0.1", port: 4173, strictPort: true },
-  build: { sourcemap: false, chunkSizeWarningLimit: 1600 },
+  build: { sourcemap: false, manifest: true, chunkSizeWarningLimit: 1600 },
   test: { environment: "node", include: ["src/**/*.test.{ts,tsx}"] },
 });

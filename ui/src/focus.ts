@@ -9,6 +9,7 @@ export interface Neighbor {
   type: string;
   relation: string;
   direction: "in" | "out";
+  status?: NodeStatus; // present when asked for with ?neighbor_status=1
 }
 
 export interface Provenance {

@@ -151,7 +151,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     da = sub.add_parser("dashboard-api", help="read-only JSON API over memory for the dashboard (127.0.0.1 only)")
     da.add_argument("--port", type=int, default=8766, help="port on 127.0.0.1 (default: 8766)")
-    da.add_argument("--demo", action="store_true", help="serve the made-up demo dataset from a temp home instead")
+    da.add_argument("--demo", action="store_true", help="serve a made-up demo dataset from a temp home instead")
+    da.add_argument("--demo-set", choices=("small", "rich"), default="rich",
+                    help="which demo dataset --demo serves (default: rich, about 120 fictional nodes)")
     return parser
 
 
@@ -614,7 +616,9 @@ def cmd_dashboard_api(args: argparse.Namespace) -> int:
     from .web import api
 
     try:
-        return api.serve(args.port, args.demo)
+        # demo_set is passed only when it is not serve()'s default, so the call stays (port, demo) by default
+        extra = {} if args.demo_set == "rich" else {"demo_set": args.demo_set}
+        return api.serve(args.port, args.demo, **extra)
     except api.PortInUse as exc:
         print(f"room dashboard-api: {exc}", file=sys.stderr)
         return 1

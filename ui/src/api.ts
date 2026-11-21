@@ -47,6 +47,12 @@ export interface SearchResult {
   relevance: number;
 }
 
+export interface Presence {
+  agent: string;
+  effective_status: "working" | "idle";
+  age_seconds: number;
+}
+
 export interface Stats {
   nodes_by_type: Record<string, number>;
   nodes_active: number;
@@ -58,7 +64,9 @@ export interface Stats {
 export const api = {
   health: (signal?: AbortSignal) => getJson<Health>("/api/health", signal),
   graph: (query: string, signal?: AbortSignal) => getJson<ApiGraph>(query, signal),
-  node: (id: number, signal?: AbortSignal) => getJson<NodeDetail>(`/api/node/${Math.trunc(id)}`, signal),
+  node: (id: number, signal?: AbortSignal) =>
+    getJson<NodeDetail>(`/api/node/${Math.trunc(id)}?neighbor_status=1`, signal),
+  presence: (signal?: AbortSignal) => getJson<{ agents: Presence[] }>("/api/presence", signal),
   search: (q: string, signal?: AbortSignal) =>
     getJson<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q.slice(0, 200))}`, signal),
   stats: (signal?: AbortSignal) => getJson<Stats>("/api/stats", signal),
