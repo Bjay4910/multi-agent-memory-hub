@@ -58,9 +58,9 @@ flowchart LR
   - after each session, facts you state are extracted with Hermes into
     `~/.agent-room/memory.db`
   - secrets are masked first by a best-effort pattern filter (not a
-    guarantee): only the forms in [Handled forms
-    (tested)](docs/MEMORY.md#handled-forms-tested) are covered; see
-    [known gaps](docs/MEMORY.md#known-gaps)
+    guarantee), verified forms only: the exact examples in [Handled forms
+    (tested)](docs/MEMORY.md#handled-forms-tested); other variants of the
+    same shapes are not verified. See [known gaps](docs/MEMORY.md#known-gaps)
   - output is checked against a strict JSON schema, with a repair prompt, an
     optional fallback agent and a retry queue
   - duplicates are merged; newer facts supersede older ones and history is kept
@@ -326,8 +326,10 @@ and the long-term layer is the curated memory. Capture fills the notebook
 automatically, but only if you turn it on. Claude Code sessions are saved
 after they end; Antigravity CLI conversations are saved after each turn,
 because `agy` has no end-of-session hook. A best-effort pattern filter
-redacts secrets before anything is written; it catches known token shapes and
-`label=value` pairs, not every password. A prefix-less password ("the password
+redacts secrets before anything is written; its patterns target known token
+shapes and `label=value` pairs, not every password, and they are not verified
+form by form (verified forms only exist for the extraction filter, in [Handled
+forms (tested)](docs/MEMORY.md#handled-forms-tested)). A prefix-less password ("the password
 is swordfish") is not redacted in the working layer (gap 3 in the
 [known gaps](docs/MEMORY.md#known-gaps); still open and needs a decision: stage 10 changed only
 the extraction side, and redact.py is unchanged). Notes expire after 14 days.
@@ -529,7 +531,8 @@ Keyword search has no notion of meaning; see the limits below.
       what a company or app is, and the same thing under several types
     The last ones are now reduced by filters before and after the model: each
     fact must quote your own words, and chatter, questions, tool output and
-    secrets are dropped. On a fixed set of 7 test transcripts this raised
+    secrets (verified forms only, see [Handled forms
+    (tested)](docs/MEMORY.md#handled-forms-tested)) are dropped. On a fixed set of 7 test transcripts this raised
     precision from 0.495 to 0.733. Recall did not clearly change: the old
     version already scored up to 0.900 on some runs, so the difference is
     within run-to-run noise. A second round stopped the pre-filter from
