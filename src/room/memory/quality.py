@@ -120,7 +120,7 @@ _FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
 # "equals", "is equal to", "will be", or 是 / は after a Chinese or Japanese label. A key in quotes may close
 # before ":" ('"password": "x"'), as may Markdown ("**Password**: x", "`api_key`: x"); the value may sit up to
 # 4 lines down ("password:\n\n  x"), also after a YAML block indicator ("password: |\n  x", "key: >-\n  x").
-_CONNECT = (r"(?:[\"'`*]{0,2}[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:[|>][+-]?[ \t]*(?=\n))?(?:\n[ \t]*){0,4}"
+_CONNECT = (r"(?:[\"'`*]{0,2}[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:[|>][0-9]?[+-]?[0-9]?[ \t]*(?=\n))?(?:\n[ \t]*){0,4}"
             r"|[ \t]*[是は][ \t]*"
             r"|[\"'`*]{0,2}[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|will[ \t]+be|"
             r"(?:is|was|are)(?:[ \t]+now)?)"
@@ -164,10 +164,10 @@ _B64_END = r"(?![A-Za-z0-9+/=_-])"
 _CREDENTIAL = re.compile(
     rf"{_LABEL}{_WRAP}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"   # the password for Harbor Log is x; KEY=x
     rf"|{_LABEL}{_FILLER}[ \t]+(?P<h>[A-Za-z0-9+/]{{4,}}={{1,2}}){_B64_END}"  # my token QWxhZGRpbjpvcGVu==
-    rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
+    rf"|\bauthorization[\"']?\s*:\s*[\"']?(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
     r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")"
     r"|\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})"                # SendGrid: the whole token
-    r"|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})|\b(?P<wh>whsec_[A-Za-z0-9+/=]{16,})"   # GitLab PAT, webhook secret
+    r"|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})|\b(?P<wh>whsec_[A-Za-z0-9+/=_]{16,})"  # GitLab PAT, webhook secret
     r"|[?&]sig=(?P<sas>[A-Za-z0-9%+/=]{8,})"                                    # Azure SAS signature
     # curl -u [user]:PASS / --user, attached (-ubot:x) or quoted ("bot:a b"); -b / --cookie 'name=VALUE'
     r'''|(?<!\S)(?-i:-u|--user)(?:[ \t]+|=)?"[^":\n]*:(?P<cuq>[^"\n]+)"'''
@@ -189,7 +189,19 @@ _CREDENTIAL = re.compile(
     r"""(?:"(?P<wuq>(?:\\.|[^"\\\n])+)"|'(?P<wus>(?:\\.|[^'\\\n])+)'|`(?P<wub>[^`\n]+)`"""
     r"""|(?P<wu>(?=[^\s,;"'`]*[^A-Za-z\s,;"'`])[^\s,;"'`]*[^\s,;"'`.!?]))"""
     # login: user/PASS (only the part after "/"; a bare login is a user name, not a secret)
-    rf"""|\blogin{_FILLER}{_CONNECT}["']?[^\s/,;"']+/(?P<lg>[^\s,;"']*[^\s,;"'.!?])"""
+    rf"""|\blogin{_FILLER}{_CONNECT}["']?[^\s/,;"']+[ \t]*/[ \t]*(?P<lg>[^\s,;"']*[^\s,;"'.!?])"""
+    # "changed / set / updated / reset / rotated the <label> to <value>"
+    rf"""|\b(?:changed|set|updated|reset|rotated)[ \t]+(?:(?:the|my|our|their|your)[ \t]+)?{_LABEL}{_FILLER}[ \t]+to"""
+    rf"""[ \t]+{_CLAUSE.replace('{name}', 'ct')}"""
+    # "<label>'s <value>" and "<label> as <value>": only a value with a digit or symbol ("the token's expiry")
+    rf"""|{_LABEL}(?:'s|[ \t]+as)[ \t]+(?P<ps>(?=[^\s,;"']*[^A-Za-z\s,;"'])[^\s,;"']*[^\s,;"'.!?])"""
+    # a glued upper-case variable name ending in PASSWORD / PASSWD / SECRET / TOKEN / KEY (PGPASSWORD=x)
+    rf"""|(?-i:(?<![A-Za-z0-9_])[A-Z][A-Z0-9]*(?:PASSWORD|PASSWD|SECRET|TOKEN|KEY))[ \t]*=[ \t]*{_flag_value('ev')}"""
+    # a JSON or Python list under a plural key: every quoted item ('"secrets": ["a", "b"]')
+    r"""|(?<![A-Za-z0-9])["']?(?:[A-Za-z0-9]+_)*(?:secrets|passwords|passwds|tokens|keys|api[_-]?keys|access[_-]?keys"""
+    r"""|credentials|passphrases)["']?[ \t]*[:=][ \t]*\[(?P<arr>[^\]\n]*)\]"""
+    # XML: <password>x</password>
+    rf"""|<{_LABEL}>(?P<xml>[^<\n]+)</"""
     # Basic dXNlcjpw...: 8+ characters with a digit or "=", or 12+ with an uppercase letter after the first and a
     # lowercase one ("Basic YWFhOmFhYWFhYWFh"; "Basic Authentication" stays)
     rf"|\bbasic\s+(?P<f>(?:(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}"
@@ -202,7 +214,8 @@ _CREDENTIAL = re.compile(
 # filler word ("Webhook secret whsec_... is set") is still masked.
 _TOKEN_SHAPES = re.compile(
     r"\b(?P<sg>SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})|\b(?P<gl>glpat-[A-Za-z0-9_-]{20,})"
-    r"|\b(?P<wh>whsec_[A-Za-z0-9+/=]{16,})"
+    r"|\b(?P<wh>whsec_[A-Za-z0-9+/=_]{16,})|\b(?P<pp>pypi-[A-Za-z0-9_-]{16,})|\b(?P<hv>hvs\.[A-Za-z0-9_-]{20,})"
+    r"|(?<![A-Za-z0-9_.-])(?P<dc>[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,40})(?![A-Za-z0-9_-])"
     rf"|(?<![A-Za-z0-9+/=_-])(?P<g>[A-Za-z0-9+/]{{32,}}={{0,2}}){_B64_END}")
 
 # Matching runs on a normalized copy (NFKC, so fullwidth : and = become ASCII; zero-width characters
@@ -253,6 +266,13 @@ def _credential_matches(text: str) -> list[tuple[int, int, str, str]]:
         if value == "[REDACTED]" or (kind == "g" and not _looks_random(value)):
             continue
         start, end = m.span(kind)
+        if kind == "arr":  # each quoted item of the list, not the list
+            for item in re.finditer(r'"((?:\\.|[^"\\])+)"|\'((?:\\.|[^\'\\])+)\'', value):
+                g = 1 if item.group(1) is not None else 2
+                s, e = start + item.start(g), start + item.end(g)
+                if item.group(g) != "[REDACTED]":
+                    found.append((origin[s], origin[e - 1] + 1, item.group(g), kind))
+            continue
         found.append((origin[start], origin[end - 1] + 1, value, kind))
     for m in _TOKEN_SHAPES.finditer(norm):
         kind = next(k for k, v in m.groupdict().items() if v)

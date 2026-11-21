@@ -217,3 +217,76 @@ def check_property(corpus):
 
 def test_property_holds_for_the_a_cases():
     assert check_property([(t, s) for _, t, s, _ in A_CASES]) == []
+
+
+# -- B. cheap shapes: 2+ inputs and a false positive each ------------------------------------------------------------
+
+B_CASES = [
+    ("changed-to", "I changed the password to hawthorn41.", "hawthorn41", "I changed the password to [REDACTED]."),
+    ("changed-to", "We reset the api key to rowan52", "rowan52", "We reset the api key to [REDACTED]"),
+    ("changed-to", "They updated our token to sorrel63 today.", "sorrel63", "They updated our token to [REDACTED]."),
+    ("possessive", "The password's hazel74.", "hazel74", "The password's [REDACTED]."),
+    ("possessive", "Trail Tracker token's linden85x now", "linden85x", "Trail Tracker token's [REDACTED] now"),
+    ("as", "Use the token as willow96.", "willow96", "Use the token as [REDACTED]."),
+    ("as", "Set the password as aspen-107 for staging", "aspen-107", "Set the password as [REDACTED] for staging"),
+    ("env-glued", "PGPASSWORD=spruce118 psql -h db.internal", "spruce118", "PGPASSWORD=[REDACTED] psql -h db.internal"),
+    ("env-glued", "export MYPASSWORD='cedar129'", "cedar129", "export MYPASSWORD='[REDACTED]'"),
+    ("env-glued", "GITHUB_TOKEN=ghxfake130", "ghxfake130", "GITHUB_TOKEN=[REDACTED]"),
+    ("login-spaced", "login: admin / teak141x", "teak141x", "login: admin / [REDACTED]"),
+    ("login-spaced", "the login is ops / sequoia152 for staging", "sequoia152",
+     "the login is ops / [REDACTED] for staging"),
+    ("tokens", "publish with pypi-AgEIcHlwaS5vcmcCJGQ4Yjc5ZTAw tonight", "pypi-AgEIcHlwaS5vcmcCJGQ4Yjc5ZTAw",
+     "publish with [REDACTED] tonight"),
+    ("tokens", "vault gave hvs.CAESIJlU9XnE2Kq7Wn5bF3dP0aQ1 to CI", "hvs.CAESIJlU9XnE2Kq7Wn5bF3dP0aQ1",
+     "vault gave [REDACTED] to CI"),
+    ("tokens", "bot uses MTA0NjE4NzQ5MjM0NTY3ODkw.GaBcDe.abcdefghijklmnopqrstuvwxyz0123 here",
+     "MTA0NjE4NzQ5MjM0NTY3ODkw.GaBcDe.abcdefghijklmnopqrstuvwxyz0123", "bot uses [REDACTED] here"),
+    ("tokens", "Stripe sends whsec_test_MfKQ9r8GKYqrTwjUPD8I in dev", "whsec_test_MfKQ9r8GKYqrTwjUPD8I",
+     "Stripe sends [REDACTED] in dev"),
+    ("json", '{"secrets": ["alder163", "birch174"]}', "birch174", '{"secrets": ["[REDACTED]", "[REDACTED]"]}'),
+    ("json", '{"api_keys": ["cedar185"]}', "cedar185", '{"api_keys": ["[REDACTED]"]}'),
+    ("json", '{"Authorization": "Token dogwood196"}', "dogwood196", '{"Authorization": "Token [REDACTED]"}'),
+    ("xml", "<password>elm207</password>", "elm207", "<password>[REDACTED]</password>"),
+    ("xml", "<api_key>fir218</api_key>", "fir218", "<api_key>[REDACTED]</api_key>"),
+    ("yaml-indent", "password: |2\n  yew229", "yew229", "password: |2\n  [REDACTED]"),
+    ("yaml-indent", "api_key: >2-\n  zelkova230", "zelkova230", "api_key: >2-\n  [REDACTED]"),
+]
+
+B_FALSE_POSITIVES = [
+    ("changed-to", "We reset the password policy to strict."),
+    ("possessive", "The token's expiry is short."),
+    ("as", "Use the key as a reference."),
+    ("env-glued", "MAX_TOKENS=4096"),
+    ("login-spaced", "login: admin"),
+    ("tokens", "the pypi-project page and hvs.short notes for release 1.2.3.4"),
+    ("json", '{"tags": ["alpha", "beta"]}'),
+    ("xml", "<passwordPolicy>strict</passwordPolicy>"),
+    ("yaml-indent", "description: |2\n  A log viewer for Harbor Log."),
+]
+
+
+@pytest.mark.parametrize("shape, text, secret, masked", B_CASES, ids=[f"{s}-{i}" for i, (s, *_) in enumerate(B_CASES)])
+def test_b_shape_masks_the_value(shape, text, secret, masked):
+    assert quality.mask_credentials(text) == masked
+    assert secret in quality.withheld_values(text)
+
+
+@pytest.mark.parametrize("shape, text", B_FALSE_POSITIVES, ids=[f"{s}-{i}" for i, (s, _) in enumerate(B_FALSE_POSITIVES)])
+def test_b_shape_false_positive_is_not_masked(shape, text):
+    assert quality.mask_credentials(text) == text
+
+
+def test_every_b_shape_has_two_inputs_and_a_false_positive():
+    for shape in {s for s, *_ in B_CASES}:
+        assert sum(s == shape for s, *_ in B_CASES) >= 2, shape
+        assert any(s == shape for s, _ in B_FALSE_POSITIVES), shape
+
+
+@pytest.mark.parametrize("shape, text, secret, masked", B_CASES[::2],
+                         ids=[f"{s}-{i}" for i, (s, *_) in enumerate(B_CASES[::2])])
+def test_b_shape_never_leaks(shape, text, secret, masked, tmp_path, monkeypatch):
+    assert_never_leaks(f"{text}\nTrail Tracker deploys nightly.", secret, tmp_path, monkeypatch)
+
+
+def test_property_holds_for_the_b_cases():
+    assert check_property([(t, s) for _, t, s, _ in B_CASES]) == []
