@@ -110,18 +110,22 @@ _LABEL = (rf"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:{_LABEL_ALTS})|(?:[A-Za-z0-
 # Up to 6 words may sit between the label and the connector ("the password for Harbor Log is ...",
 # "the password (for prod) is ...", "the token for harbor.log is ..."); a word holds no clause or sentence end.
 _FILLER = r"(?:[ \t]+[^\s,;:=.!?]+(?:\.[^\s,;:=.!?]+)*){0,6}?"
-# The connector: "=", ":", "is", "was", "is now", "set to", "is set to", "equals", "is equal to".
-_CONNECT = (r"(?:[ \t]*[:=][ \t]*"
+# The connector: "=", ":", "is", "was", "is now", "set to", "is set to", "equals", "is equal to". A key in
+# quotes may close before ":" ('"password": "x"'), and the value may sit on the next line ("password:\nx").
+_CONNECT = (r"(?:[\"']?[ \t]*[:=][ \t]*(?:\n[ \t]*)?"
             r"|[ \t]+(?:(?:is|was)[ \t]+equal[ \t]+to|(?:(?:is|was)[ \t]+)?set[ \t]+to|equals|(?:is|was)(?:[ \t]+now)?)"
-            r"[ \t]+)")
-# The value runs to the end of the clause, so a passphrase ("blue sky mining") is masked whole. There is
-# no status-word exception: "the token is valid for one hour" is masked too (security over recall), and
-# this can over-mask the rest of a clause, which is accepted.
-_CLAUSE = r"[^\s,;][^,;\n]*?(?=\s*(?:[,;]|[.!?](?:\s|$)|\n|$))"
+            r"(?:[ \t]+|[ \t]*\n[ \t]*))")
+# The value runs to the end of the clause, so a passphrase ("blue sky mining") is masked whole. It also
+# ends at a quote, a closing bracket, or "&" before another URL parameter ("?api_key=x&v=1"); an opening
+# quote before it is not part of it. There is no status-word exception: "the token is valid for one hour"
+# is masked too (security over recall), and this can over-mask the rest of a clause, which is accepted.
+_VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[\w.-]+=)|[.!?](?:\s|$)|\n|$))"""
+_CLAUSE = r"""["']?(?P<{name}>[^\s,;"'\)\]\}\{\[\(<][^,;"'\)\]\}\n]*?)""" + _VALUE_END
+_TOKEN_VALUE = r"[A-Za-z0-9._~+/=-]*[A-Za-z0-9_~+/=-]"  # a header token; a trailing "." ends the sentence
 _CREDENTIAL = re.compile(
-    rf"{_LABEL}{_FILLER}{_CONNECT}(?P<a>{_CLAUSE})"                    # the password for Harbor Log is x; KEY=x
-    r"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>\S+)"      # Authorization: Bearer x
-    r"|\bbearer\s+(?P<e>[A-Za-z0-9._~+/=-]{8,})", re.I)
+    rf"{_LABEL}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"          # the password for Harbor Log is x; KEY=x
+    rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
+    r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")", re.I)
 _SECRET_VAR = re.compile(r"\b(?:[A-Z0-9]+_)*(?:" + "|".join(v for v in SECRET_VAR_SUFFIXES if v != "PAT")
                          + r")\b|\b(?:[A-Z0-9]+_)+PAT\b")
 _SECRET_NOUN = (r"(?:client[ _-]?secrets?|secret[ _-]?keys?|api[ _-]?keys?|access[ _-]?keys?|private[ _-]?keys?|"
@@ -134,30 +138,48 @@ _USER_HOLDS_SECRET = re.compile(
     rf"(?:an?\s+|the\s+|their\s+|my\s+|our\s+|his\s+|her\s+)?(?:\w+\s+)?{_SECRET_NOUN}\b", re.I)
 
 
+def credential_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of every credential value in ``text``. The one rule set behind the mask, the
+    withheld values and the node filter, so they can never disagree."""
+    spans = []
+    for m in _CREDENTIAL.finditer(text or ""):
+        name = next(k for k, v in m.groupdict().items() if v)
+        if m.group(name) != "[REDACTED]":
+            spans.append(m.span(name))
+    return spans
+
+
+def has_credential(text: str) -> bool:
+    return bool(credential_spans(text))
+
+
 def mask_credentials(text: str) -> str:
     """``text`` with each credential value replaced by [REDACTED]; the rest of the line is kept."""
-    def mask(m: re.Match) -> str:
-        name = next(k for k, v in m.groupdict().items() if v)
-        start, end = m.span(name)
-        return m.group(0)[: start - m.start()] + "[REDACTED]" + m.group(0)[end - m.start():]
-    return _CREDENTIAL.sub(mask, text or "")
+    text = text or ""
+    out, last = [], 0
+    for start, end in credential_spans(text):
+        out += [text[last:start], "[REDACTED]"]
+        last = end
+    return "".join(out) + text[last:]
 
 
 def credential_values(text: str) -> set[str]:
-    """Credential values written in ``text`` ("hunter2" in "my password is hunter2"), for the post-filter."""
-    values = set()
-    for m in _CREDENTIAL.finditer(text or ""):
-        value = next(v for v in m.groups() if v).strip(".,;:)'\"")
-        if value and value != "[REDACTED]":
-            values.add(value)
-    return values
+    """Credential values written in ``text`` ("hunter2" in "my password is hunter2"), exactly as masked."""
+    return {(text or "")[s:e] for s, e in credential_spans(text)}
+
+
+def premask_text(text: str) -> str:
+    """The text the mask runs on in clean_message: code blocks cut, "> " quote marks removed."""
+    return _QUOTE_MARK.sub("", _FENCE.sub("\n", text or ""))
 
 
 def withheld_values(text: str) -> set[str]:
-    """Credential values in ``text``, plus each word of them that the model never sees (absent from
-    the masked text), so a node that repeats only part of an over-masked clause is dropped too."""
-    values = credential_values(text)
-    visible = {w.strip(".,;:!?()'\"").lower() for w in mask_credentials(text).split()}
+    """Every credential value the mask takes out of ``text`` (found on the raw text and on the text
+    clean_message masks, with the same rules), plus each word of them that the model never sees, so a
+    node that repeats only part of an over-masked clause is dropped too."""
+    prepared = premask_text(text)
+    values = credential_values(text) | credential_values(prepared)
+    visible = {w.strip(".,;:!?()'\"").lower() for w in mask_credentials(prepared).split()}
     words = {w.strip(".,;:!?()'\"") for v in values for w in v.split()}
     return values | {w for w in words if len(w) >= 3 and w.lower() not in visible}
 
@@ -203,7 +225,7 @@ def _is_noise(line: str) -> bool:
 def clean_message(text: str) -> str:
     """The message without code blocks and tool-noise lines; '' if it is only chatter."""
     # Credential values are masked first, so they never reach the model whatever the line is.
-    text = mask_credentials(_QUOTE_MARK.sub("", _FENCE.sub("\n", text or "")))
+    text = mask_credentials(premask_text(text))
     # The indented block under a noise line belongs to it, blank lines included, until the next
     # non-indented, non-blank line. Under a stack trace ("    connect(API_TOKEN)") every indented
     # line is noise. Under other tool output ("$ npm test") an indented line is kept only when it
@@ -337,7 +359,7 @@ def talks_about_secrets(node: dict) -> bool:
     or says the user owns or holds a secret. Plain technical words ("JWT tokens", "password
     manager", "token limit", "PRIMARY_KEY") are not secret talk."""
     text = f"{node.get('name') or ''} {node.get('summary') or ''}"
-    return bool(_CREDENTIAL.search(text) or _SECRET_VAR.search(text) or _OWNED_SECRET.search(text)
+    return bool(has_credential(text) or _SECRET_VAR.search(text) or _OWNED_SECRET.search(text)
                 or _USER_HOLDS_SECRET.search(text))
 
 
@@ -383,7 +405,7 @@ def clean_extraction(data: dict, source: str, store: "MemoryStore | None" = None
         fields = " ".join(str(n.get(k) or "") for k in ("name", "summary", "evidence"))
         # Any node, "Me" too, whose name, summary or evidence holds a label, a connector and a value is
         # dropped ("The password for Harbor Log is x"): losing the fact is the price.
-        if (has_secret(n) or (talks_about_secrets(n) and not is_me) or _CREDENTIAL.search(fields)
+        if (has_secret(n) or (talks_about_secrets(n) and not is_me) or has_credential(fields)
                 or any(len(v) >= 3 and v.lower() in fields.lower() for v in withheld)):
             dropped["secret"] += 1
             continue
