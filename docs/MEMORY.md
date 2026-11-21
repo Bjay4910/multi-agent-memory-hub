@@ -236,7 +236,8 @@ After each `room ask` (unless `--no-memory`) and after `room remember`:
    extraction prompt; each word of those (split at whitespace, with
    `. , ; : ! ? ( ) ' "` and also `< > = `` ` `` stripped from its ends) of
    3+ characters that does not appear in the masked text the model sees;
-   each piece of 5+ characters after splitting at whitespace,
+   each piece of 5+ characters (3+ if it holds both a letter and a digit,
+   since stage 13) after splitting at whitespace,
    `" ' \ , ; : ( ) < > [ ] { } = / @ & . #`, `` ` ``, curly quotes ’ ‘ “ ”
    and every boundary between a CJK run (kana, CJK ideographs, Hangul,
    half-width katakana) and a Latin letter or digit run (since stage 12:
@@ -362,6 +363,11 @@ after a word; `--runs 1` each): original 0.900 / 0.800 / 0.847, held-out
 0.882 / 0.652 / 0.750, regression 0.889 / 0.800 / 0.842, all unchanged; 0
 secret leaks.
 
+Stage 13 (base64 `=` padding not a connector, 3+ character letter+digit
+pieces; `--runs 1` each): original 0.900 / 0.800 / 0.847, held-out 0.882 /
+0.652 / 0.750, regression 0.889 / 0.800 / 0.842, all unchanged; 0 secret
+leaks.
+
 Round 3 narrowed the secret-talk rule so that plain technical words ("JWT
 tokens", "password manager", "PRIMARY_KEY") are kept. As a result the held-out
 control group dropped from 0.667 to 0.500: the node "Rotate LUMEN_KEY for
@@ -444,6 +450,7 @@ generates it.)
 | URL query, `&` before a bracketed parameter | `https://api.example.com/search?token=violet94&filter[a]=1` | stage10 `test_query_value_ends_at_ampersand_before_a_bracketed_parameter` |
 | base64 of 32+ characters, mixed case and digits | `Trail Tracker uses Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg= for sync.` | stage9 `test_base64_candidates_are_masked` |
 | padded base64 after a label | `my token QWxhZGRpbjpvcGVu== for Trail Tracker`; `auth header: Basic dXNlcjpwYXNzd29yZDEyMw==` | stage9 `test_base64_candidates_are_masked` |
+| `=` / `==` padded base64 under 32 characters after a label, with or without words after it | `my token YWRtaW46cGFzc3dvcmQ= for Trail Tracker`; `my token YWJjZGU= for Trail Tracker`; `my api key Zm9vYmFyOTk= for Trail Tracker`; `my secret c2VjcmV0S2V5MQ== for Trail Tracker`; `my token YWRtaW46cGFzc3dvcmQ=`; `my token YWJjZGU=`; `my api key Zm9vYmFyOTk=`; `my secret c2VjcmV0S2V5MQ==` | stage13 `test_a_case_is_masked_and_withheld` |
 | `Authorization: Bearer` | `Authorization: Bearer eyJhbGci...` (the round3 fixture) | round3 `test_prefixless_secret_in_every_shape_never_leaks` |
 | JSON `Authorization` with `Token` | `{"Authorization": "Token dogwood196"}` | stage11 `test_b_shape_masks_the_value` |
 | `Basic` token of 12+ characters without digits | `curl sends Basic YWFhOmFhYWFhYWFh to the API`; `header: Basic dXNlclBhc3NXb3Jk`; `send basic QWxhZGRpbkJvYmJ5 now` | stage11 `test_a_family_masks_the_value` |
@@ -466,11 +473,12 @@ generates it.)
 | glued upper-case env name | `PGPASSWORD=spruce118 psql -h db.internal`; `export MYPASSWORD='cedar129'`; `GITHUB_TOKEN=ghxfake130` | stage11 `test_b_shape_masks_the_value` |
 | one-line JSON list under a plural key | `{"secrets": ["alder163", "birch174"]}`; `{"api_keys": ["cedar185"]}` | stage11 `test_b_shape_masks_the_value` |
 | one-line XML element without attributes | `<password>elm207</password>`; `<api_key>fir218</api_key>` | stage11 `test_b_shape_masks_the_value` |
-| value glued to CJK text, in curly quotes, or before `#` (withheld piece) | `我的密码是plum994别告诉别人`; `私のパスワードはsakura105です`; `My password is “mango993” for staging`; `https://svc.example.com?access_key=jay213#frag` | stage12 `test_c_case_is_masked_and_withheld` |
+| value glued to CJK text, in curly quotes, or before `#` (withheld piece: 5+ characters, or 3+ if it mixes letters and digits, since stage 13) | `我的密码是plum994别告诉别人`; `私のパスワードはsakura105です`; `My password is “mango993” for staging`; `https://svc.example.com?access_key=jay213#frag` | stage12 `test_c_case_is_masked_and_withheld` |
+| 3- and 4-character letter+digit pieces split from CJK text or `#` | `我的密码是k9x4别告诉别人`; `私のパスワードはm7q2です`; `https://svc.example.com?access_key=j8k3#frag` | stage13 `test_a_case_is_masked_and_withheld` |
 | curly apostrophe, soft hyphen in the label, decomposed ñ in the label | `The password’s acorn329 for staging.`; `pass\u00adword: papaya104`; `La contrasen\u0303a: canela883.`; `pwd: rose\u0301x77` | stage12 `test_c_case_is_masked_and_withheld` |
 | one word then a quoted value; `to be` then a quoted value; an apostrophe between letters in the value | `My password is really "cranberry769" for CI.`; `I set my password to be "cranberry769" for CI.`; `My password is o'brien882 for prod.` | stage12 `test_c_case_is_masked_and_withheld` |
 | `~~~` code fence cut like ``` | `My config:\n~~~\npassword = fir23\n~~~\nTrail Tracker deploys nightly.` | stage10 `test_tilde_code_fence_is_stripped_like_backticks` |
-| what `redact_secrets` masks in the prompt is withheld | `https://api.example.com/search?token=violet94&filter[a]=1` | stage10 `test_every_value_redact_secrets_masks_in_the_prompt_is_withheld` |
+| what `redact_secrets` masks in the prompt is withheld | `Trail Tracker uses token=violet94&filter[a]=1 for search`; `password:\n\n  amber22`; `Trail Tracker key Xq7Lp2Zx9Wv4Nb6Mc1Rt8Ys3Ud5Ke0Jf2Gh4 rotates weekly`; `secret: "hunter22x"` | stage10 `test_every_value_redact_secrets_masks_in_the_prompt_is_withheld` |
 | a queued error message is scrubbed | the stage-9 fuzz combinations with invalid model output | stage9 `test_fuzz9_matrix_never_leaks_and_really_writes_the_queue` |
 
 #### Known gaps
@@ -532,30 +540,40 @@ gaps in the question, noise and secret rules:
     combination's own temporary home and database (`memory.db`, -wal,
     -shm). Its model always returns valid output, so it never writes
     `memory_queue`.
-  - Stage 9 (`test_extraction_stage9.py`): 20,032 combinations (labels x 13
-    connectors x 5 Unicode variants x 8 shapes, JSON/dict/URL forms, 4 URL
-    schemes). Every third combination gets invalid output, so 5,334 really
+  - Stage 9 (`test_extraction_stage9.py`): 20,032 combinations (36 labels x
+    13 connectors x 5 Unicode variants x 8 message shapes = 18,720, the 5
+    value shapes taken in turn rather than as a factor; plus 36 labels x 4
+    JSON / dict / nested JSON / URL query forms x 8 shapes = 1,152; plus 4
+    URL schemes x 5 value shapes x 8 shapes = 160). Every third combination gets invalid output, so 5,334 really
     write `memory_queue`, and every file under the home is scanned.
   - Stage 10 (`test_extraction_stage10.py`): 5,769 combinations (36 labels x
     16 quoted, wrapped, YAML, Markdown, query and with/using families x 9
-    shapes including a `~~~` fence, plus 13 curl, CLI, login and token
-    families). 1,923 really write `memory_queue`. For token shapes it scans
+    message shapes including a `~~~` fence = 5,184; plus 13 curl, CLI, login
+    and token families x 5 value shapes x 9 shapes = 585). 1,923 really write `memory_queue`. For token shapes it scans
     for the whole token.
   - Stage 11 (`test_extraction_stage11.py`): 5,391 combinations (36 labels x
     14 families: nested ( ) [ ] < > { }, wrapped labels before filler,
     with/using + quoted value, changed ... to, 's / as, XML, YAML |2, x 9
-    shapes; plus 19 curl, CLI, env-name, login, JSON list / Authorization,
-    Basic and token families). 1,797 really write `memory_queue`.
-  - Stage 12 adds no fuzz test; its 11 cases and 6 false positives are
-    exact tests (`len(C_CASES)`, `len(C_FALSE_POSITIVES)`), each run with
-    valid and with queued output. The four fuzz counts above were measured
-    again after stage 12 and did not change.
+    message shapes = 4,536; plus 19 curl, CLI, env-name, login, JSON list /
+    Authorization, Basic and token families x 5 value shapes x 9 shapes =
+    855). 1,797 really write `memory_queue`.
+  - Stages 12 and 13 add no fuzz test, only exact tests. Stage 12: each of
+    its 11 cases (`len(C_CASES)`) checks the exact `mask_credentials`
+    output, the withheld set and the prompt, and runs a hostile model once
+    with valid and once with queued output, scanning the stored nodes,
+    `memory.db` and `memory_queue`; its 6 false positives
+    (`len(C_FALSE_POSITIVES)`) only check `mask_credentials(text) == text`
+    and are not run through extraction. Stage 13: the same for its 11 cases
+    (`len(A_CASES)`) and 4 false positives (`len(A_FALSE_POSITIVES)`), plus
+    one test that runs `clean_extraction` and keeps a node holding the
+    ordinary short word "frag". The four fuzz counts above were measured
+    again after stage 13 and did not change.
   - All four report 0 leaks. None creates a session log: extraction never
     writes one, and session logs belong to the working layer (gap 3 below).
     Before each stage, its own matrix leaked on the code it replaced:
     stage 9's in 5,261 of 7,336 combinations, stage 10's in 4,063 of 5,193
     (on 98f6829, 32 labels), stage 11's in 4,562 of 5,391 (on 0e057e4).
-- **Still not handled after stage 12 (can store a secret).** All checked
+- **Still not handled after stage 13 (can store a secret).** All checked
   by running them, none in the test suite as a passing case:
   - a value split across two lines ("my password is crim" / "son42");
   - a value before its label ("crimson42 is my password");
@@ -604,9 +622,12 @@ gaps in the question, noise and secret rules:
   - Markdown italics with underscores: "\_Password\_: wren101";
   - `blob=` followed by base64 containing `/` `+` `=`
     ("blob=Ab3dEf7gHi9j/Kl1mNo3pQ+r5sTu7vWx9yZ==");
-  - unpadded-looking base64 after a label without a connector: "My api key
-    for prod YWRtaW46cGFzc3dvcmQ= works." and "My token
-    YWRtaW46cGFzc3dvcmQ= works.";
+  - (fixed in stage 13, no longer a gap) base64 with single `=` padding
+    after a label and no connector: "My api key for prod
+    YWRtaW46cGFzc3dvcmQ= works." and "My token YWRtaW46cGFzc3dvcmQ=
+    works." (`YWRtaW46cGFzc3dvcmQ=` is base64 of "admin:password"). The
+    `=` padding was read as the connector; both now mask only the token
+    (rerun through the real path on the stage 13 code);
   - quoted base64 after a label: 'My token "ZGVwbG95OnNlY3JldA==" is
     active.';
   - `redis-cli -a` attached: "redis-cli -a'macaw215'" and
@@ -631,6 +652,29 @@ gaps in the question, noise and secret rules:
   - a comment after a YAML block indicator: "password: | # prod";
   - "their" or "your" before the label after with / using: 'Connect with
     their password "tayberry324"' (only the, a, an, my, our are allowed).
+- **Fifth review: more variants, not in the verified table.** Each was run
+  on the stage 13 code through the real extraction path (hostile scripted
+  model, valid and queued output, every file scanned). Still leak (prompt
+  or stored node, `memory.db` and `memory_queue`):
+  - a `.netrc` line: "machine github.com login bot password primrose446";
+  - a Markdown table cell: "| prod | password | hibiscus921 |";
+  - the label as a prefix of the name: "SECRET_VALUE=lavender743";
+  - `curl -H "Authorization: Digest username=admin, response=mimosa654"`;
+  - an unknown scheme: "Authorization: CustomScheme narcissus565";
+  - `mongosh -u admin -p petunia387`;
+  - three or more words between the connector and a quoted value: 'My
+    password is very very really "quince332" for CI.' (one or two words
+    are verified);
+  - `password := "amaryllis554"`;
+  - a Korean label: "비밀번호: begonia463";
+  - a JSON `\u` escape inside a value: '{"password": "\\u006cilac831"}'.
+    The value as written is masked and withheld, but its decoded form
+    "lilac831" is not withheld, so a model that decodes the escape can
+    store it;
+  - a quoted value that continues on the next line ('password: "line1'
+    then a line '  bluebell882"'). This input was not in the list before
+    stage 13; the nearest earlier entry, "a value split across two lines",
+    is kept above.
 - **Why best-effort, and why only exact forms are claimed.** Independent
   reviewers invented new bypasses quickly: the second review found about 45
   leaks in 56 new inputs, and each later round found about 30 new variants
