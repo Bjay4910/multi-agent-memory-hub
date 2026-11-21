@@ -59,8 +59,9 @@ flowchart LR
     `~/.agent-room/memory.db`
   - secrets are masked first by a best-effort pattern filter (not a
     guarantee), verified forms only: the exact examples in [Handled forms
-    (tested)](docs/MEMORY.md#handled-forms-tested); other variants of the
-    same shapes are not verified. See [known gaps](docs/MEMORY.md#known-gaps)
+    (tested)](docs/MEMORY.md#handled-forms-tested), with only the secret
+    value changed to another value of the same kind and at least the row's
+    minimum length; other variants of the same shapes are not verified. See [known gaps](docs/MEMORY.md#known-gaps)
   - output is checked against a strict JSON schema, with a repair prompt, an
     optional fallback agent and a retry queue
   - duplicates are merged; newer facts supersede older ones and history is kept

@@ -417,7 +417,9 @@ only ([Handled forms (tested)](#handled-forms-tested)).
 
 #### Handled forms (tested)
 
-Verified means: these exact examples, with only the secret value changed.
+Verified means: these exact examples, with only the secret value changed to
+another value of the same kind and at least the row's minimum length (shown
+in the table). Rows with no minimum were checked at 4, 10 and 24 characters.
 Other variants of the same shape (different quoting, spacing, extra words,
 Unicode forms, line breaks) may or may not be masked and are not verified.
 
@@ -428,58 +430,75 @@ not covered. (The fuzz tests in the gap list combine these forms with more
 labels and message shapes; a combination is verified only if a fuzz test
 generates it.)
 
-| form (as in the examples) | verified example(s) | test |
-|---|---|---|
-| label, `is`, value | `the password is swordfish` | round3 `test_plain_word_password_in_every_shape_never_leaks` |
-| label, ` = ` or `: `, value | `client_secret = xyz`; `pwd: orange` | round3 `test_prefixless_secret_in_every_shape_never_leaks` |
-| label, filler words, connector, value | `The password for Harbor Log is now42abc.`; `the api key on the staging server was qz81mbt`; `The token of my admin account is now pl4netx`; `the passcode for the front door set to 9a8b7c`; `Password for prod: driftwood`; `the secret for Harbor Log equals copperleaf`; `The password (for prod) is gl4cier`; `the token for harbor.log is m00nbeam`; `the key for "Harbor Log" is r1verstone` | stage8 `test_filler_words_between_label_and_connector_are_masked` |
-| a value that starts with a status word | `The password is not-so-secret-42.`; `The api key is in-vault-7781.`; `the token is set4you99`; `my passphrase is valid forest lantern` | stage8 `test_status_word_values_are_masked` |
-| value on the line after `:` or `=` | `Trail Tracker password:\nmagnolia77`; `API_KEY=\nfirsthalf99` | stage9 `test_value_on_the_next_line_is_masked_and_withheld` |
-| value after one blank line after `:` | `password:\n\n  amber22` | stage10 `test_yaml_value_after_blank_lines_is_masked_by_both_layers_and_withheld` |
-| NBSP, fullwidth `：` `＝`, zero-width space, Cyrillic а, em dash, `->`, `will be` | `Trail Tracker password is garnet44`; `password： violet66`; `API_KEY＝ topaz99`; `PASS​WORD: indigo44`; `pаssword is orchid55`; `password — quartz55`; `My password for Trail Tracker -> marigold55.`; `My password for Trail Tracker will be juniper66.` | stage9 `test_normalized_shapes_are_masked_and_withheld` |
-| more labels | `pass: almond42`; `pw = almond43`; `pwd is almond44`; `the PIN is 4821`; `otp: 739201`; `my 2fa code is 551903`; `recovery code: wx7k-q2m9`; `session cookie = sid88almond`; `cookie: almond45sid`; `psk is almond46`; `the secret-code is almond47`; `seed phrase: tiger ocean almond lamp`; `auth header: Bearer almond48almond48`; `credentials: admin / almond49`; `the credentials are almond50`; `mot de passe : lavande42`; `contraseña: girasol42`; `Passwort: kornblume42`; `密码: mudan42`; `パスワード: sakura42` | stage9 `test_more_labels_are_masked_and_withheld` |
-| labels jwt, totp, hmac, license key | `jwt: Ab3dEf7gHi9jKl`; `totp = 482913`; `hmac: f00dbabe99`; `license key: ABCD-1234-EFGH` | stage10 `test_common_shape_masks_only_the_secret` |
-| JSON / Python dict value | `{"password": "dahlia77"}`; `{'password': 'anise55'}`; `{"auth": {"pwd": "tulip66"}}`; `{"api_key": "peony8899", "token": "iris4455"}` | stage9 `test_json_and_dict_values_are_masked_and_the_rest_kept` |
-| double-quoted value with `,` `;` `)` or `\"` inside | `{"password": "alpha,beta99", "env": "prod"}`; `DB_PASSWORD="p@ss;word88"`; `{"password": "ab)cd99", "env": "prod"}`; `{"password": "pre\"post77", "env": "prod"}` | stage10 `test_quoted_value_is_masked_through_the_closing_quote` |
-| value in `( )` or `< >`, or after `==` | `password is (orchid77) in prod.`; `password: <topaz66>`; `api_key: ==garnet55` | stage10 `test_wrapped_value_is_masked_with_its_wrapper` |
-| two-level nested `( )` `[ ]` `< >` `{ }` | `password is (outer(inner746)) in prod.`; `token: [alpha[beta857]]`; `pwd: <x<y179>> for prod`; `api_key = {gamma{delta968}} here` | stage11 `test_a_family_masks_the_value` |
-| Markdown or quoted label, connector | `**Password**: sycamore38`; `` `api_key`: chestnut29 ``; `"password" is walnut64.` | stage10 `test_common_shape_masks_only_the_secret` |
-| Markdown or quoted label, filler words, connector | `**Password** for Trail Tracker is camellia981.`; `` `api_key` for Trail Tracker = azalea192 ``; `"password" for Trail Tracker is begonia203.`; `'secret' for prod is dahlia284`; `*token* on staging = elder395` | stage11 `test_a_family_masks_the_value` |
-| URL userinfo | `postgres://admin:sycamore99@db.example.com:5432/prod`; `https://alice:buttercup77@git.internal.local/repo.git`; `redis://:verbena55@cache.internal:6379/0`; `mongodb+srv://ops:tarragon88@cluster0.example.net/db` | stage9 `test_url_userinfo_is_masked_whole` |
-| URL query secret (params api_key, auth, token, password, secret, key) | `https://api.example.com/v2/items?api_key=lilac7x9&page=2` | stage9 `test_url_query_secrets_are_masked` |
-| URL query, `&` before a bracketed parameter | `https://api.example.com/search?token=violet94&filter[a]=1` | stage10 `test_query_value_ends_at_ampersand_before_a_bracketed_parameter` |
-| base64 of 32+ characters, mixed case and digits | `Trail Tracker uses Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg= for sync.` | stage9 `test_base64_candidates_are_masked` |
-| padded base64 after a label | `my token QWxhZGRpbjpvcGVu== for Trail Tracker`; `auth header: Basic dXNlcjpwYXNzd29yZDEyMw==` | stage9 `test_base64_candidates_are_masked` |
-| `=` / `==` padded base64 under 32 characters after a label, with or without words after it | `my token YWRtaW46cGFzc3dvcmQ= for Trail Tracker`; `my token YWJjZGU= for Trail Tracker`; `my api key Zm9vYmFyOTk= for Trail Tracker`; `my secret c2VjcmV0S2V5MQ== for Trail Tracker`; `my token YWRtaW46cGFzc3dvcmQ=`; `my token YWJjZGU=`; `my api key Zm9vYmFyOTk=`; `my secret c2VjcmV0S2V5MQ==` | stage13 `test_a_case_is_masked_and_withheld` |
-| `Authorization: Bearer` | `Authorization: Bearer eyJhbGci...` (the round3 fixture) | round3 `test_prefixless_secret_in_every_shape_never_leaks` |
-| JSON `Authorization` with `Token` | `{"Authorization": "Token dogwood196"}` | stage11 `test_b_shape_masks_the_value` |
-| `Basic` token of 12+ characters without digits | `curl sends Basic YWFhOmFhYWFhYWFh to the API`; `header: Basic dXNlclBhc3NXb3Jk`; `send basic QWxhZGRpbkJvYmJ5 now` | stage11 `test_a_family_masks_the_value` |
-| SendGrid `SG.` token, whole | `Trail Tracker mails through SendGrid with SG.<22 chars>.<43 chars> in prod.` (`FAKE_SG`) | stage10 `test_sendgrid_token_is_masked_whole` |
-| `glpat-`, `whsec_`, Azure SAS `sig=` | `Trail Tracker CI uses glpat-AbCdEfGhIjKlMnOpQrSt12 for pushes`; `Webhook signing uses whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw in prod`; `...?sv=2021-08-06&sig=Ab3dEf%2BgHi9jKl%3D&se=2026`; `Upload to https://acct.blob.core.windows.net/c?sig=Q1w2E3r4T5y6%3D` | stage10 `test_common_shape_masks_only_the_secret` |
-| `pypi-`, `hvs.`, Discord-style three segments, `whsec_test_` | `publish with pypi-AgEIcHlwaS5vcmcCJGQ4Yjc5ZTAw tonight`; `vault gave hvs.CAESIJlU9XnE2Kq7Wn5bF3dP0aQ1 to CI`; `bot uses MTA0NjE4NzQ5MjM0NTY3ODkw.GaBcDe.abcdefghijklmnopqrstuvwxyz0123 here`; `Stripe sends whsec_test_MfKQ9r8GKYqrTwjUPD8I in dev` | stage11 `test_b_shape_masks_the_value` |
-| a token used as a filler word of a label match | `Webhook secret whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw is set` | stage10 `test_a_token_inside_the_filler_of_a_label_match_is_still_masked` |
-| curl `-u` / `--user` / `-b` / `--cookie`, spaced | `curl -u deploy:hazel71 https://api.example.com/v1`; `curl --user ops:maple82 https://api.example.com/v1`; `curl -b 'sid=cedar93' https://api.example.com/v1`; `curl --cookie "session=birch44" https://api.example.com/v1` | stage10 `test_common_shape_masks_only_the_secret` |
-| curl: empty user, double-quoted with a space, attached `-u`, single-quoted `--user` and `-b` | `curl -u :marigold303 https://api.example.com`; `curl -u "bot:blue marigold414" https://api.example.com`; `curl -ubot:petunia525 https://api.example.com`; `curl --user 'ci:violet 828' https://api.example.com`; `curl -b 'sid=blue cedar606' https://api.example.com`; `curl --cookie "session=lilac717" https://api.example.com` | stage11 `test_a_family_masks_the_value` |
-| `redis-cli -a` spaced, `mysql -p` attached, `--password=`, `sshpass -p` spaced and single-quoted | `redis-cli -a quince55 -h cache.internal`; `mysql -u admin -prowan66 shop`; `mysql -u admin --password=aspen77 shop`; `sshpass -p 'larch88' ssh ops@db.internal` | stage10 `test_common_shape_masks_only_the_secret` |
-| `mysql -p` attached and quoted; `--password="..."`; `sshpass -p'...'`; `docker login -p` spaced; `redis-cli -a` spaced and double-quoted; `docker login --password=` | `mysql -u admin -p'foxglove969' shop`; `mysql -u admin -p"bluebell170" shop`; `tool --password="red poppy281" --verbose`; `sshpass -p'primrose392' ssh ops@db.internal`; `sshpass -p 'tansy503' ssh ops@db.internal`; `docker login -u ops -p parsley999 registry.example.com`; `redis-cli -a "ivy 614" ping`; `docker login -u ops --password=sage725 registry.example.com` | stage11 `test_a_family_masks_the_value` |
-| YAML `\|` and `>-` block scalar (first line) | `password: \|\n  spruce99`; `api_key: >-\n  poplar11` | stage10 `test_common_shape_masks_only_the_secret` |
-| YAML block scalar with an indentation indicator | `password: \|2\n  yew229`; `api_key: >2-\n  zelkova230` | stage11 `test_b_shape_masks_the_value` |
-| `with` / `using` + label + unquoted value with a digit | `Connect with password juniper89 to the staging box.`; `Log in using token oak-77-ash today.` | stage10 `test_common_shape_masks_only_the_secret` |
-| `with` / `using` + label + quoted value | `Connect with password "lotus625" to staging.`; `Log in using token 'clover736' today.`; `Sign in with key "quiet harbor words" now.`; ``Deploy using password `fern847` today.`` | stage11 `test_a_family_masks_the_value` |
-| `login: user/PASS`, `login is user/PASS` | `login: admin/teak42`; `the login is ops/sequoia7 for staging` | stage10 `test_common_shape_masks_only_the_secret` |
-| `login: user / PASS` | `login: admin / teak141x`; `the login is ops / sequoia152 for staging` | stage11 `test_b_shape_masks_the_value` |
-| changed / reset / updated + label + `to` | `I changed the password to hawthorn41.`; `We reset the api key to rowan52`; `They updated our token to sorrel63 today.` | stage11 `test_b_shape_masks_the_value` |
-| `<label>'s <value>`, `<label> as <value>` (value with a digit) | `The password's hazel74.`; `Trail Tracker token's linden85x now`; `Use the token as willow96.`; `Set the password as aspen-107 for staging` | stage11 `test_b_shape_masks_the_value` |
-| glued upper-case env name | `PGPASSWORD=spruce118 psql -h db.internal`; `export MYPASSWORD='cedar129'`; `GITHUB_TOKEN=ghxfake130` | stage11 `test_b_shape_masks_the_value` |
-| one-line JSON list under a plural key | `{"secrets": ["alder163", "birch174"]}`; `{"api_keys": ["cedar185"]}` | stage11 `test_b_shape_masks_the_value` |
-| one-line XML element without attributes | `<password>elm207</password>`; `<api_key>fir218</api_key>` | stage11 `test_b_shape_masks_the_value` |
-| value glued to CJK text, in curly quotes, or before `#` (withheld piece: 5+ characters, or 3+ if it mixes letters and digits, since stage 13) | `我的密码是plum994别告诉别人`; `私のパスワードはsakura105です`; `My password is “mango993” for staging`; `https://svc.example.com?access_key=jay213#frag` | stage12 `test_c_case_is_masked_and_withheld` |
-| 3- and 4-character letter+digit pieces split from CJK text or `#` | `我的密码是k9x4别告诉别人`; `私のパスワードはm7q2です`; `https://svc.example.com?access_key=j8k3#frag` | stage13 `test_a_case_is_masked_and_withheld` |
-| curly apostrophe, soft hyphen in the label, decomposed ñ in the label | `The password’s acorn329 for staging.`; `pass\u00adword: papaya104`; `La contrasen\u0303a: canela883.`; `pwd: rose\u0301x77` | stage12 `test_c_case_is_masked_and_withheld` |
-| one word then a quoted value; `to be` then a quoted value; an apostrophe between letters in the value | `My password is really "cranberry769" for CI.`; `I set my password to be "cranberry769" for CI.`; `My password is o'brien882 for prod.` | stage12 `test_c_case_is_masked_and_withheld` |
-| `~~~` code fence cut like ``` | `My config:\n~~~\npassword = fir23\n~~~\nTrail Tracker deploys nightly.` | stage10 `test_tilde_code_fence_is_stripped_like_backticks` |
-| what `redact_secrets` masks in the prompt is withheld | `Trail Tracker uses token=violet94&filter[a]=1 for search`; `password:\n\n  amber22`; `Trail Tracker key Xq7Lp2Zx9Wv4Nb6Mc1Rt8Ys3Ud5Ke0Jf2Gh4 rotates weekly`; `secret: "hunter22x"` | stage10 `test_every_value_redact_secrets_masks_in_the_prompt_is_withheld` |
-| a queued error message is scrubbed | the stage-9 fuzz combinations with invalid model output | stage9 `test_fuzz9_matrix_never_leaks_and_really_writes_the_queue` |
+| form (as in the examples) | verified example(s) | test | minimum length |
+|---|---|---|---|
+| label, `is`, value | `the password is swordfish` | round3 `test_plain_word_password_in_every_shape_never_leaks` | none |
+| label, ` = ` or `: `, value | `client_secret = xyz`; `pwd: orange` | round3 `test_prefixless_secret_in_every_shape_never_leaks` | none |
+| label, filler words, connector, value | `The password for Harbor Log is now42abc.`; `the api key on the staging server was qz81mbt`; `The token of my admin account is now pl4netx`; `the passcode for the front door set to 9a8b7c`; `Password for prod: driftwood`; `the secret for Harbor Log equals copperleaf`; `The password (for prod) is gl4cier`; `the token for harbor.log is m00nbeam`; `the key for "Harbor Log" is r1verstone` | stage8 `test_filler_words_between_label_and_connector_are_masked` | none |
+| a value that starts with a status word | `The password is not-so-secret-42.`; `The api key is in-vault-7781.`; `the token is set4you99`; `my passphrase is valid forest lantern` | stage8 `test_status_word_values_are_masked` | none |
+| value on the line after `:` or `=` | `Trail Tracker password:\nmagnolia77`; `API_KEY=\nfirsthalf99` | stage9 `test_value_on_the_next_line_is_masked_and_withheld` | none |
+| value after one blank line after `:` | `password:\n\n  amber22` | stage10 `test_yaml_value_after_blank_lines_is_masked_by_both_layers_and_withheld` | none |
+| NBSP, fullwidth `：` `＝`, zero-width space, Cyrillic а, em dash, `->`, `will be` | `Trail Tracker password is garnet44`; `password： violet66`; `API_KEY＝ topaz99`; `PASS​WORD: indigo44`; `pаssword is orchid55`; `password — quartz55`; `My password for Trail Tracker -> marigold55.`; `My password for Trail Tracker will be juniper66.` | stage9 `test_normalized_shapes_are_masked_and_withheld` | none |
+| more labels | `pass: almond42`; `pw = almond43`; `pwd is almond44`; `the PIN is 4821`; `otp: 739201`; `my 2fa code is 551903`; `recovery code: wx7k-q2m9`; `session cookie = sid88almond`; `cookie: almond45sid`; `psk is almond46`; `the secret-code is almond47`; `seed phrase: tiger ocean almond lamp`; `auth header: Bearer almond48almond48`; `credentials: admin / almond49`; `the credentials are almond50`; `mot de passe : lavande42`; `contraseña: girasol42`; `Passwort: kornblume42`; `密码: mudan42`; `パスワード: sakura42` | stage9 `test_more_labels_are_masked_and_withheld` | none |
+| labels jwt, totp, hmac, license key | `jwt: Ab3dEf7gHi9jKl`; `totp = 482913`; `hmac: f00dbabe99`; `license key: ABCD-1234-EFGH` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| JSON / Python dict value | `{"password": "dahlia77"}`; `{'password': 'anise55'}`; `{"auth": {"pwd": "tulip66"}}`; `{"api_key": "peony8899", "token": "iris4455"}` | stage9 `test_json_and_dict_values_are_masked_and_the_rest_kept` | none |
+| double-quoted value with `,` `;` `)` or `\"` inside | `{"password": "alpha,beta99", "env": "prod"}`; `DB_PASSWORD="p@ss;word88"`; `{"password": "ab)cd99", "env": "prod"}`; `{"password": "pre\"post77", "env": "prod"}` | stage10 `test_quoted_value_is_masked_through_the_closing_quote` | none |
+| value in `( )` or `< >`, or after `==` | `password is (orchid77) in prod.`; `password: <topaz66>`; `api_key: ==garnet55` | stage10 `test_wrapped_value_is_masked_with_its_wrapper` | none |
+| two-level nested `( )` `[ ]` `< >` `{ }` | `password is (outer(inner746)) in prod.`; `token: [alpha[beta857]]`; `pwd: <x<y179>> for prod`; `api_key = {gamma{delta968}} here` | stage11 `test_a_family_masks_the_value` | none |
+| Markdown or quoted label, connector | `**Password**: sycamore38`; `` `api_key`: chestnut29 ``; `"password" is walnut64.` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| Markdown or quoted label, filler words, connector | `**Password** for Trail Tracker is camellia981.`; `` `api_key` for Trail Tracker = azalea192 ``; `"password" for Trail Tracker is begonia203.`; `'secret' for prod is dahlia284`; `*token* on staging = elder395` | stage11 `test_a_family_masks_the_value` | none |
+| URL userinfo | `postgres://admin:sycamore99@db.example.com:5432/prod`; `https://alice:buttercup77@git.internal.local/repo.git`; `redis://:verbena55@cache.internal:6379/0`; `mongodb+srv://ops:tarragon88@cluster0.example.net/db` | stage9 `test_url_userinfo_is_masked_whole` | none |
+| URL query secret (params api_key, auth, token, password, secret, key) | `https://api.example.com/v2/items?api_key=lilac7x9&page=2` | stage9 `test_url_query_secrets_are_masked` | none |
+| URL query, `&` before a bracketed parameter | `https://api.example.com/search?token=violet94&filter[a]=1` | stage10 `test_query_value_ends_at_ampersand_before_a_bracketed_parameter` | none |
+| base64 of 32+ characters, mixed case and digits | `Trail Tracker uses Ab3dEf7gHi9jKl1m/No3pQr5sTu7vWx9yZa1bCd3eFg= for sync.` | stage9 `test_base64_candidates_are_masked` | 32+ base64 characters, with an upper-case letter, a lower-case letter and a digit |
+| padded base64 after a label | `my token QWxhZGRpbjpvcGVu== for Trail Tracker`; `auth header: Basic dXNlcjpwYXNzd29yZDEyMw==` | stage9 `test_base64_candidates_are_masked` | 4+ base64 characters before the `=` / `==`; the `Basic` example: as in row 24 |
+| `=` / `==` padded base64 under 32 characters after a label, with or without words after it | `my token YWRtaW46cGFzc3dvcmQ= for Trail Tracker`; `my token YWJjZGU= for Trail Tracker`; `my api key Zm9vYmFyOTk= for Trail Tracker`; `my secret c2VjcmV0S2V5MQ== for Trail Tracker`; `my token YWRtaW46cGFzc3dvcmQ=`; `my token YWJjZGU=`; `my api key Zm9vYmFyOTk=`; `my secret c2VjcmV0S2V5MQ==` | stage13 `test_a_case_is_masked_and_withheld` | 4+ base64 characters before the `=` / `==` |
+| `Authorization: Bearer` | `Authorization: Bearer eyJhbGci...` (the round3 fixture) | round3 `test_prefixless_secret_in_every_shape_never_leaks` | none |
+| JSON `Authorization` with `Token` | `{"Authorization": "Token dogwood196"}` | stage11 `test_b_shape_masks_the_value` | none |
+| `Basic` token of 12+ characters without digits | `curl sends Basic YWFhOmFhYWFhYWFh to the API`; `header: Basic dXNlclBhc3NXb3Jk`; `send basic QWxhZGRpbkJvYmJ5 now` | stage11 `test_a_family_masks_the_value` | 8+ base64 characters (not counting `=`) if one is a digit or `=` padding follows; otherwise 12+, with an upper-case letter after the first character and a lower-case letter |
+| SendGrid `SG.` token, whole | `Trail Tracker mails through SendGrid with SG.<22 chars>.<43 chars> in prod.` (`FAKE_SG`) | stage10 `test_sendgrid_token_is_masked_whole` | both parts after `SG.` 16+ characters each |
+| `glpat-`, `whsec_`, Azure SAS `sig=` | `Trail Tracker CI uses glpat-AbCdEfGhIjKlMnOpQrSt12 for pushes`; `Webhook signing uses whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw in prod`; `...?sv=2021-08-06&sig=Ab3dEf%2BgHi9jKl%3D&se=2026`; `Upload to https://acct.blob.core.windows.net/c?sig=Q1w2E3r4T5y6%3D` | stage10 `test_common_shape_masks_only_the_secret` | glpat body 20+; whsec body 16+; `sig=` value 8+ |
+| `pypi-`, `hvs.`, Discord-style three segments, `whsec_test_` | `publish with pypi-AgEIcHlwaS5vcmcCJGQ4Yjc5ZTAw tonight`; `vault gave hvs.CAESIJlU9XnE2Kq7Wn5bF3dP0aQ1 to CI`; `bot uses MTA0NjE4NzQ5MjM0NTY3ODkw.GaBcDe.abcdefghijklmnopqrstuvwxyz0123 here`; `Stripe sends whsec_test_MfKQ9r8GKYqrTwjUPD8I in dev` | stage11 `test_b_shape_masks_the_value` | pypi body 16+; hvs body 20+; Discord: first segment 24 to 28, second 6 to 7, third 27 to 64; whsec body (counting `test_`) 16+ |
+| a token used as a filler word of a label match | `Webhook secret whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw is set` | stage10 `test_a_token_inside_the_filler_of_a_label_match_is_still_masked` | whsec body 16+ |
+| curl `-u` / `--user` / `-b` / `--cookie`, spaced | `curl -u deploy:hazel71 https://api.example.com/v1`; `curl --user ops:maple82 https://api.example.com/v1`; `curl -b 'sid=cedar93' https://api.example.com/v1`; `curl --cookie "session=birch44" https://api.example.com/v1` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| curl: empty user, double-quoted with a space, attached `-u`, single-quoted `--user` and `-b` | `curl -u :marigold303 https://api.example.com`; `curl -u "bot:blue marigold414" https://api.example.com`; `curl -ubot:petunia525 https://api.example.com`; `curl --user 'ci:violet 828' https://api.example.com`; `curl -b 'sid=blue cedar606' https://api.example.com`; `curl --cookie "session=lilac717" https://api.example.com` | stage11 `test_a_family_masks_the_value` | none |
+| `redis-cli -a` spaced, `mysql -p` attached, `--password=`, `sshpass -p` spaced and single-quoted | `redis-cli -a quince55 -h cache.internal`; `mysql -u admin -prowan66 shop`; `mysql -u admin --password=aspen77 shop`; `sshpass -p 'larch88' ssh ops@db.internal` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| `mysql -p` attached and quoted; `--password="..."`; `sshpass -p'...'`; `docker login -p` spaced; `redis-cli -a` spaced and double-quoted; `docker login --password=` | `mysql -u admin -p'foxglove969' shop`; `mysql -u admin -p"bluebell170" shop`; `tool --password="red poppy281" --verbose`; `sshpass -p'primrose392' ssh ops@db.internal`; `sshpass -p 'tansy503' ssh ops@db.internal`; `docker login -u ops -p parsley999 registry.example.com`; `redis-cli -a "ivy 614" ping`; `docker login -u ops --password=sage725 registry.example.com` | stage11 `test_a_family_masks_the_value` | none |
+| YAML `\|` and `>-` block scalar (first line) | `password: \|\n  spruce99`; `api_key: >-\n  poplar11` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| YAML block scalar with an indentation indicator | `password: \|2\n  yew229`; `api_key: >2-\n  zelkova230` | stage11 `test_b_shape_masks_the_value` | none |
+| `with` / `using` + label + unquoted value with a digit | `Connect with password juniper89 to the staging box.`; `Log in using token oak-77-ash today.` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| `with` / `using` + label + quoted value | `Connect with password "lotus625" to staging.`; `Log in using token 'clover736' today.`; `Sign in with key "quiet harbor words" now.`; ``Deploy using password `fern847` today.`` | stage11 `test_a_family_masks_the_value` | none |
+| `login: user/PASS`, `login is user/PASS` | `login: admin/teak42`; `the login is ops/sequoia7 for staging` | stage10 `test_common_shape_masks_only_the_secret` | none |
+| `login: user / PASS` | `login: admin / teak141x`; `the login is ops / sequoia152 for staging` | stage11 `test_b_shape_masks_the_value` | none |
+| changed / reset / updated + label + `to` | `I changed the password to hawthorn41.`; `We reset the api key to rowan52`; `They updated our token to sorrel63 today.` | stage11 `test_b_shape_masks_the_value` | none |
+| `<label>'s <value>`, `<label> as <value>` (value with a digit) | `The password's hazel74.`; `Trail Tracker token's linden85x now`; `Use the token as willow96.`; `Set the password as aspen-107 for staging` | stage11 `test_b_shape_masks_the_value` | none |
+| glued upper-case env name | `PGPASSWORD=spruce118 psql -h db.internal`; `export MYPASSWORD='cedar129'`; `GITHUB_TOKEN=ghxfake130` | stage11 `test_b_shape_masks_the_value` | none |
+| one-line JSON list under a plural key | `{"secrets": ["alder163", "birch174"]}`; `{"api_keys": ["cedar185"]}` | stage11 `test_b_shape_masks_the_value` | none |
+| one-line XML element without attributes | `<password>elm207</password>`; `<api_key>fir218</api_key>` | stage11 `test_b_shape_masks_the_value` | none |
+| value glued to CJK text, in curly quotes, or before `#` (withheld piece: 5+ characters, or 3+ if it mixes letters and digits, since stage 13) | `我的密码是plum994别告诉别人`; `私のパスワードはsakura105です`; `My password is “mango993” for staging`; `https://svc.example.com?access_key=jay213#frag` | stage12 `test_c_case_is_masked_and_withheld` | none |
+| 3- and 4-character letter+digit pieces split from CJK text or `#` | `我的密码是k9x4别告诉别人`; `私のパスワードはm7q2です`; `https://svc.example.com?access_key=j8k3#frag` | stage13 `test_a_case_is_masked_and_withheld` | none |
+| curly apostrophe, soft hyphen in the label, decomposed ñ in the label | `The password’s acorn329 for staging.`; `pass\u00adword: papaya104`; `La contrasen\u0303a: canela883.`; `pwd: rose\u0301x77` | stage12 `test_c_case_is_masked_and_withheld` | none |
+| one word then a quoted value; `to be` then a quoted value; an apostrophe between letters in the value | `My password is really "cranberry769" for CI.`; `I set my password to be "cranberry769" for CI.`; `My password is o'brien882 for prod.` | stage12 `test_c_case_is_masked_and_withheld` | none |
+| `~~~` code fence cut like ``` | `My config:\n~~~\npassword = fir23\n~~~\nTrail Tracker deploys nightly.` | stage10 `test_tilde_code_fence_is_stripped_like_backticks` | none |
+| what `redact_secrets` masks in the prompt is withheld | `Trail Tracker uses token=violet94&filter[a]=1 for search`; `password:\n\n  amber22`; `Trail Tracker key Xq7Lp2Zx9Wv4Nb6Mc1Rt8Ys3Ud5Ke0Jf2Gh4 rotates weekly`; `secret: "hunter22x"` | stage10 `test_every_value_redact_secrets_masks_in_the_prompt_is_withheld` | the `Xq7Lp2…` key example only: 32+ base64 characters with an upper-case letter, a lower-case letter and a digit; the other examples: none |
+| a queued error message is scrubbed | the stage-9 fuzz combinations with invalid model output | stage9 `test_fuzz9_matrix_never_leaks_and_really_writes_the_queue` | none; no literal input, so not part of the substitution check |
+
+Substitution check (stage 14, run by the author on the code of 1df62ec, not
+an independent review): every literal example in the table above (50 rows,
+175 examples; row 50 has none) was run with its secret value replaced by
+3 fake values of the same kind: letters and digits of 4, 10 and 24
+characters, or `=`-padded base64 of 4, 12 and 24 characters on the base64
+rows; a token prefix was kept and the 4, 10 or 24 characters replaced its
+body, and for SendGrid and Discord only the last part was replaced. That
+is 525 runs, each through the real extraction path: a hostile scripted
+model with valid output (prompt, stored nodes, `memory.db`), and invalid
+output so the session is queued (prompt, `memory_queue`); all 525 wrote
+`memory_queue`. 37 runs leaked (prompt 36, stored node 33, `memory.db` 33,
+`memory_queue` 37), all on rows 19, 20, 21, 24, 25, 26, 27, 28 and 49, and
+in all 37 the value was shorter than that row's minimum length. No run
+with a value at or above the row's minimum leaked. Values with special
+characters, spaces or digits only were replaced by letters and digits, so
+those characters were not re-tested.
 
 #### Known gaps
 
@@ -511,7 +530,8 @@ gaps in the question, noise and secret rules:
   name appears anywhere else in the message, the node is kept.
 - **Secret masking, what it covers.** Verified forms only: the exact
   examples in [Handled forms (tested)](#handled-forms-tested), with only the
-  secret value changed. A form that is not in that table is not covered,
+  secret value changed to another value of the same kind and at least the
+  row's minimum length. A form that is not in that table is not covered,
   even if it looks similar.
 - **What "one rule set" means, exactly.** The extraction filter's own
   patterns (`quality.credential_spans`) drive the prompt mask, the withheld
@@ -652,6 +672,13 @@ gaps in the question, noise and secret rules:
   - a comment after a YAML block indicator: "password: | # prod";
   - "their" or "your" before the label after with / using: 'Connect with
     their password "tayberry324"' (only the, a, an, my, our are allowed).
+- **Short token-shaped values.** Short token-shaped values below a
+  pattern's minimum length are not masked (for example glpat-7sd5,
+  whsec_rn6b, a 3-character padded base64): token shapes are recognized by
+  length, so real tokens are not affected, but a short secret in these
+  forms is not covered. The minimums are in the table's "minimum length"
+  column. The substitution check above did not re-test values with special
+  characters or spaces.
 - **Fifth review: more variants, not in the verified table.** Each was run
   on the stage 13 code through the real extraction path (hostile scripted
   model, valid and queued output, every file scanned). Still leak (prompt
