@@ -89,7 +89,8 @@ def run_one(text, value, case_dir, monkeypatch, bad_output=False):
     db = case_dir / "memory.db"
     asyncio.run(ex.extract_session("s9", [Message("s9", "user", 0, "user", text)], lambda name: agent, store_path=db))
     leaks = []
-    if any(value in p or _words_in(value, p) for p in agent.prompts):
+    # The extraction prompt only: a repair prompt quotes the model's own previous output back to it.
+    if agent.prompts and (value in agent.prompts[0] or _words_in(value, agent.prompts[0])):
         leaks.append("prompt")
     if db.exists():
         with MemoryStore(db) as store:
@@ -333,4 +334,139 @@ def test_property_holds_for_normalized_and_new_shapes():
         if not covered:
             misses.append((text, value))
         misses += [(text, s) for s in spans if s not in withheld]
+    assert not misses, misses[:20]
+
+
+# -- D. fuzz: new shapes, invalid output that writes memory_queue, the whole temporary home scanned ---------------
+
+FUZZ9_LABELS = quality.SECRET_LABELS
+FUZZ9_CONNECTORS = ["is", "was", "=", ":", "is now", "set to", "equals", "->", "\u2014", "will be", ":\n", "=\n",
+                    "are"]
+FUZZ9_VARIANTS = ["plain", "nbsp", "fullwidth", "zero-width", "cyrillic"]
+FUZZ9_FORMS = ["json", "python-dict", "nested-json", "url-query"]
+FUZZ9_SCHEMES = ["postgres", "https", "redis", "mongodb+srv"]
+SHAPES = {
+    "quote": "> {P}\n> Trail Tracker deploys nightly.",
+    "warning": "Warning: {P} for Trail Tracker",
+    "question": "Is {P} safe for Trail Tracker?",
+    "after-prompt": "$ {P}\nTrail Tracker reads it at startup.",
+    "indented-output": "$ cat notes.txt\n  {P}\nTrail Tracker reads that file.",
+    "code-block": "My config:\n```\n{P}\n```\nTrail Tracker deploys nightly.",
+    "restated-question": "What should I do now that {P} for my Trail Tracker app?",
+    "we-line": "We noted that {P} in Trail Tracker.\nTrail Tracker deploys nightly.",
+}
+_CYRILLIC = {"a": "\u0430", "e": "\u0435", "o": "\u043e", "p": "\u0440", "c": "\u0441", "x": "\u0445"}
+_PLAIN = ["marmalade", "driftwood", "copperleaf", "saltmarsh", "bluegill", "ironbark", "foxglove"]
+_FILLER = ["for", "the", "Harbor", "Log", "prod", "server", "on", "staging", "admin"]
+
+
+def _variant(head, conn, variant):
+    if variant == "nbsp":
+        return head.replace(" ", "\u00a0"), conn.replace(" ", "\u00a0")
+    if variant == "fullwidth":
+        return head, conn.replace(":", "\uff1a").replace("=", "\uff1d")
+    if variant == "zero-width":
+        return (head[:2] + "\u200b" + head[2:]) if len(head) > 2 else head, conn
+    if variant == "cyrillic":
+        for latin, cyr in _CYRILLIC.items():
+            if latin in head:
+                return head.replace(latin, cyr, 1), conn
+    return head, conn
+
+
+def _value(rng, shape, url=False):
+    word = rng.choice(_PLAIN)
+    shapes = {
+        "plain": word,
+        "word-digits": f"{word}{rng.randint(100, 9999)}",
+        "hyphenated": f"{word}-{rng.choice(_PLAIN)}-{rng.randint(10, 99)}",
+        "spaces": f"{word} {rng.choice(_PLAIN)} {rng.randint(10, 99)}x",
+        "long": "".join(rng.choice("abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(14)),
+    }
+    if url and shape == "spaces":
+        shape = "word-digits"
+    return shapes[shape]
+
+
+VALUE_SHAPES = ["plain", "word-digits", "hyphenated", "spaces", "long"]
+
+
+def fuzz9_cases():
+    """(index, key, text, value, bad_output). Fixed seed; every third combination gets invalid model output."""
+    rng = random.Random(9)
+    cases = []
+
+    def add(key, phrase, value, shape):
+        i = len(cases)
+        cases.append((i, f"{key}|{shape}", SHAPES[shape].replace("{P}", phrase), value, i % 3 == 0))
+
+    for n, (label, conn, variant, shape) in enumerate(itertools.product(
+            FUZZ9_LABELS, FUZZ9_CONNECTORS, FUZZ9_VARIANTS, SHAPES)):
+        value = _value(rng, VALUE_SHAPES[n % 5])
+        filler = " ".join(rng.choice(_FILLER) for _ in range(rng.randint(0, 3)))
+        head, c = _variant(f"{label} {filler}".strip(), conn, variant)
+        if c.startswith((":", "\uff1a", "=", "\uff1d")):
+            phrase = f"{head}{c}{'' if c.endswith(chr(10)) else ' '}{value}"
+        else:
+            phrase = f"{head} {c} {value}"
+        add(f"label:{label}|{conn!r}|{variant}", phrase, value, shape)
+    for n, (label, form, shape) in enumerate(itertools.product(FUZZ9_LABELS, FUZZ9_FORMS, SHAPES)):
+        value = _value(rng, VALUE_SHAPES[n % 5], url=form == "url-query")
+        key = label.replace(" ", "_")
+        phrase = {
+            "json": f'{{"{key}": "{value}"}}',
+            "python-dict": f"{{'{key}': '{value}'}}",
+            "nested-json": f'{{"config": {{"{key}": "{value}"}}}}',
+            "url-query": f"https://api.example.com/v1/items?{key}={value}&page=2",
+        }[form]
+        add(f"form:{form}|{label}", phrase, value, shape)
+    for scheme, vshape, shape in itertools.product(FUZZ9_SCHEMES, VALUE_SHAPES, SHAPES):
+        value = _value(rng, vshape, url=True)
+        user = "" if scheme == "redis" else "admin"
+        add(f"userinfo:{scheme}", f"{scheme}://{user}:{value}@db.example.com:5432/prod", value, shape)
+    return cases
+
+
+def run_fuzz9(root, monkeypatch, cases=None):
+    cases = cases if cases is not None else fuzz9_cases()
+    leaks, queued = [], 0
+    for i, key, text, value, bad in cases:
+        case_dir = root / f"c{i}"
+        found, was_queued = run_one(text, value, case_dir, monkeypatch, bad_output=bad)
+        queued += was_queued
+        if found:
+            leaks.append((key, found))
+        shutil.rmtree(case_dir, ignore_errors=True)
+    return len(cases), leaks, queued
+
+
+def test_fuzz9_matrix_size():
+    expected = (len(FUZZ9_LABELS) * len(FUZZ9_CONNECTORS) * len(FUZZ9_VARIANTS) * len(SHAPES)
+                + len(FUZZ9_LABELS) * len(FUZZ9_FORMS) * len(SHAPES)
+                + len(FUZZ9_SCHEMES) * len(VALUE_SHAPES) * len(SHAPES))
+    assert len(fuzz9_cases()) == expected
+
+
+def test_fuzz9_matrix_never_leaks_and_really_writes_the_queue(tmp_path, monkeypatch):
+    total, leaks, queued = run_fuzz9(tmp_path, monkeypatch)
+    print(f"fuzz9: {total} combinations, {len(leaks)} leaks, {queued} wrote memory_queue")
+    assert queued > 0, "no combination wrote memory_queue: the queue path is not exercised"
+    assert not leaks, f"{len(leaks)} leaks, first: {leaks[:20]}"
+
+
+def test_property_holds_on_the_fuzz_matrix():
+    """Every masked span is withheld as is, and each fake value is withheld or inside a withheld span."""
+    misses = []
+    cases = fuzz9_cases()[::5]
+    for _, key, text, value, _ in cases:
+        spans = quality.credential_values(quality.premask_text(text))
+        withheld = quality.withheld_values(text)
+        masked = quality.mask_credentials(quality.premask_text(text))
+        covered = value in withheld or (any(value in s for s in spans)
+                                        and all(w in withheld for w in value.split() if len(w) >= 3))
+        cut = value not in quality.premask_text(text)  # a code block is cut before masking: nothing to withhold
+        if not cut and value not in masked and not covered:
+            misses.append((key, value))
+        misses += [(key, s) for s in spans if s not in withheld]
+    assert len(cases) > 3000
     assert not misses, misses[:20]

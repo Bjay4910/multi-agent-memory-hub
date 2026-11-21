@@ -398,6 +398,7 @@ async def extract_session(
     started = time.monotonic()
     source = session_source(messages)
     result = ExtractionResult(session_id, "queued")
+    withheld: set[str] = set()
     try:
         # credential values ("my password is hunter2") are cut out by the pre-filter; the post-filter
         # also drops any node that still contains one. Kept in memory only, never written.
@@ -436,6 +437,9 @@ async def extract_session(
         result.errors.append(redact(f"{type(exc).__name__}: {exc}"))
     finally:
         result.elapsed_s = time.monotonic() - started
+    # An error can quote the model's output (an invalid field), so withheld values are scrubbed from every
+    # error before it is returned or written to memory_queue.
+    result.errors = [quality.scrub_withheld(e, withheld) for e in result.errors]
     try:
         enqueue(session_id, source, result.errors[-1] if result.errors else "unknown error")
     except Exception as exc:  # noqa: BLE001

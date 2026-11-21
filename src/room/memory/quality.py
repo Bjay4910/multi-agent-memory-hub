@@ -126,12 +126,13 @@ _CONNECT = (r"(?:[\"']?[ \t]*(?:[:=]|->|=>|[\u2014\u2013])[ \t]*(?:\n[ \t]*)?"
 # quote before it is not part of it. There is no status-word exception: "the token is valid for one hour"
 # is masked too (security over recall), and this can over-mask the rest of a clause, which is accepted.
 _VALUE_END = r"""(?=[ \t]*(?:[,;"'\)\]\}]|&(?=[\w.-]+=)|[.!?](?:\s|$)|\n|$))"""
-_CLAUSE = r"""["']?(?P<{name}>[^\s,;"'\)\]\}\{\[\(<][^,;"'\)\]\}\n]*?)""" + _VALUE_END
+# A value never starts with "=", so "my token QWxh==" is not read as filler "QWxh", connector "=", value "=".
+_CLAUSE = r"""["']?(?P<{name}>[^\s,;"'\)\]\}\{\[\(<=][^,;"'\)\]\}\n]*?)""" + _VALUE_END
 _TOKEN_VALUE = r"[A-Za-z0-9._~+/=-]*[A-Za-z0-9_~+/=-]"  # a header token; a trailing "." ends the sentence
 _B64_END = r"(?![A-Za-z0-9+/=_-])"
 _CREDENTIAL = re.compile(
-    rf"{_LABEL}{_FILLER}[ \t]+(?P<h>[A-Za-z0-9+/]{{4,}}={{1,2}}){_B64_END}"  # my token QWxhZGRpbjpvcGVu==
-    rf"|{_LABEL}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"         # the password for Harbor Log is x; KEY=x
+    rf"{_LABEL}{_FILLER}{_CONNECT}{_CLAUSE.replace('{name}', 'a')}"          # the password for Harbor Log is x; KEY=x
+    rf"|{_LABEL}{_FILLER}[ \t]+(?P<h>[A-Za-z0-9+/]{{4,}}={{1,2}}){_B64_END}"  # my token QWxhZGRpbjpvcGVu==
     rf"|\bauthorization\s*:\s*(?:bearer\s+|basic\s+|token\s+)?(?P<d>{_TOKEN_VALUE})"  # Authorization: Bearer x
     r"|\bbearer\s+(?P<e>(?=[A-Za-z0-9._~+/=-]{8,})" + _TOKEN_VALUE + ")"
     rf"|\bbasic\s+(?P<f>(?=[A-Za-z0-9+/]*[0-9=])[A-Za-z0-9+/]{{8,}}={{0,2}}){_B64_END}"  # Basic dXNlcjpw...
@@ -220,6 +221,16 @@ def mask_credentials(text: str) -> str:
 def credential_values(text: str) -> set[str]:
     """Credential values written in ``text`` ("hunter2" in "my password is hunter2"), exactly as masked."""
     return {(text or "")[s:e] for s, e in credential_spans(text)}
+
+
+def scrub_withheld(text: str, withheld: "set[str] | frozenset[str]") -> str:
+    """``text`` with credential values masked and every withheld value of 3+ characters replaced by
+    [REDACTED], longest first; for text that does not come from the user, such as an error message that
+    quotes the model's output."""
+    text = mask_credentials(text)
+    for value in sorted((v for v in withheld if len(v) >= 3), key=len, reverse=True):
+        text = re.sub(re.escape(value), "[REDACTED]", text, flags=re.I)
+    return text
 
 
 def premask_text(text: str) -> str:
