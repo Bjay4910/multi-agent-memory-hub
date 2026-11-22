@@ -740,14 +740,17 @@ gaps in the question, noise and secret rules:
   `LUMEN_KEY`, is stored as a name ("Rotate LUMEN_KEY for Lumen Budget"); its
   value is never stored. This is the price of keeping `PRIMARY_KEY`, and it is
   why the held-out control group dropped in round 3 (see the table).
-- **Gap 3 (open; needs a decision).** Stage 10 added every substring
-  `redact_secrets` masks in the extraction prompt to the withheld values,
-  without changing redact.py. Gap 3 itself is not fixed: the redaction layer (`room/memory/redact.py`, used by capture and the working
-  layer) only catches known token shapes and `label=value` pairs with 6+
-  characters, so a prefix-less password ("the password is swordfish") in a
-  working-layer transcript is not redacted there, and `working_search` (also
-  through the room MCP server) can return it. The masking above applies only
-  on the way into the long-term graph.
+- **Gap 3 (closed for new working notes).** Working notes now get the same
+  masking as extraction before they are written (see [Working
+  layer](#working-layer)): verified forms only, with the same "Verified
+  means" definition and minimum lengths as [Handled forms
+  (tested)](#handled-forms-tested), and every gap in this list applies to
+  them too, including the stage 15 one-case single-`=` base64 gap.
+  `room/memory/redact.py` itself is unchanged. Not covered: notes written
+  before this change, which are not rewritten (they expire 14 days after
+  their last update, and `room working purge --all` deletes every note).
+  `room working promote` copies a note's turns as stored, so promoting an
+  older note copies its older redaction.
 - A fact before a question is kept only when a comma separates it from the
   question and it opens with a factual marker. These lose a real fact
   (checked): "I prefer Rust so which parser should I pick?" (no comma), "I
@@ -912,13 +915,34 @@ Raw and temporary, unlike the curated graph above.
   opt-in) and `room capture antigravity` (the Antigravity CLI `Stop` hook,
   opt-in with the same switch; it runs after each turn and keeps only your typed
   request and the final reply of each turn; the room's own `agy` calls, any
-  `agy -p` run, and the Antigravity desktop app and IDE are not captured). Text is redacted before the write; if a secret pattern still
-  matches, nothing is written. That redaction (`room/memory/redact.py`) is a
-  best-effort pattern filter: it misses a prefix-less password ("the
-  password is swordfish"), which can then sit in a working note and be
-  returned by `working_search` (gap 3 in [Known gaps](#known-gaps): still
-  open and needs a decision; stage 10 changed only the extraction side and
-  left redact.py unchanged). Sessions with fewer than 2 typed messages or
+  `agy -p` run, and the Antigravity desktop app and IDE are not captured).
+  Before the write, every turn and the project name get the same masking as
+  extraction (gap 3, closed for new notes): `redact_secrets` (redact.py,
+  unchanged), then the extraction filter's credential mask
+  (`quality.mask_credentials`), then every value the extraction filter would
+  withhold from any turn of the note is replaced by `[REDACTED]` in all of
+  them, so a secret repeated bare in a later turn is removed too
+  (`working.redact_for_note`). If a secret pattern still matches after
+  redaction and masking (redact.py's or the extraction filter's), nothing is
+  written. What this covers: verified forms only, the exact examples in
+  [Handled forms (tested)](#handled-forms-tested), with only the secret value
+  changed to another value of the same kind, at least the row's minimum
+  length and within its case limit; for working notes this is checked by
+  `tests/memory/test_working_redaction.py` and
+  `tests/memory/test_working_redaction_fuzz.py` (every table example with 3
+  such values, captured through Claude Code, Antigravity and a direct save,
+  then read back through `room working list/show/search` and the MCP
+  tools). What it does not cover: the same documented gaps as extraction in
+  [Known gaps](#known-gaps), including the stage 15 one-case single-`=`
+  base64 gap. Masking a clause can over-mask a note's text (the same recall
+  cost as extraction), and a session whose masked text still matches a
+  pattern is not stored at all (for example one with a JSON
+  `"Authorization": "Token x"` line, whose masked form still matches).
+  Notes written before this change are not rewritten: they keep their older
+  redaction until they expire or are deleted with `room working purge
+  --all`, and such a note that still holds a secret the new check sees is
+  not extended when its session resumes. Sessions with fewer than 2 typed
+  messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock
   keeps two sessions that end at the same time from clashing; a resumed session

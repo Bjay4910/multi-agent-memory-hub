@@ -159,7 +159,7 @@ def parse_transcript(path: Path) -> tuple[set[str], list[dict]]:
 def project_tag(cwd: str) -> str:
     name = Path(cwd).name if cwd else ""
     tag = re.sub(r"[^A-Za-z0-9 _.\-]+", "-", name).strip(" -.")[:40]
-    return redact_secrets(tag) or "unknown"
+    return working.redact_for_note(tag) or "unknown"
 
 
 # -- capture -------------------------------------------------------------------------------

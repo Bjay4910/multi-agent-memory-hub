@@ -34,6 +34,7 @@ from .. import paths
 from ..fsutil import atomic_write_json
 from ..transcript import ROLE_AGENT, ROLE_USER, Message, new_session_id
 from .paths import RepoWriteError, ensure_outside_repo
+from . import quality
 from .redact import find_secrets, redact_secrets
 
 SOURCES = ("claude-code", "antigravity")
@@ -111,12 +112,30 @@ def _lock(directory: Path) -> Iterator[None]:
         os.close(fd)
 
 
-def _clean_turn(turn: dict) -> dict | None:
+def redact_for_note(text: str, withheld: "set[str] | frozenset[str]" = frozenset()) -> str:
+    """The masking every working note gets before it is written: redact_secrets, then the extraction filter's
+    credential mask (quality.mask_credentials, the forms verified in docs/MEMORY.md "Handled forms (tested)"),
+    then every withheld value of this text and of ``withheld`` (a value seen elsewhere in the same note, such as
+    a secret repeated bare in a later turn) replaced by [REDACTED]."""
+    return quality.scrub_withheld(_masked(text), set(withheld) | quality.withheld_values(text))
+
+
+def _masked(text: str) -> str:
+    """redact_secrets, then the extraction filter's credential mask (before the withheld-value scrub)."""
+    return quality.mask_credentials(redact_secrets(text))
+
+
+def _still_secret(text: str) -> bool:
+    """A secret pattern still matches: redact.py's, or the extraction filter's (stronger) one."""
+    return bool(find_secrets(text)) or quality.has_credential(text)
+
+
+def _clean_turn(turn: dict, withheld: "set[str] | frozenset[str]" = frozenset()) -> dict | None:
     role = turn.get("role")
     text = turn.get("text")
     if role not in ("user", "assistant") or not isinstance(text, str):
         return None
-    text = redact_secrets(text.strip())[:MAX_NOTE_CHARS]
+    text = redact_for_note(text.strip(), withheld)[:MAX_NOTE_CHARS]
     if not text:
         return None
     return {"role": role, "ts": str(turn.get("ts") or "")[:40], "text": text}
@@ -141,21 +160,29 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
         live = existing is not None and not _expired(existing, now)
         seen = set(existing.get("turn_keys", [])) if existing else set()
         new_items = [i for i in items if isinstance(i, dict) and i.get("key") and _hash(str(i["key"])) not in seen]
-        new_turns = [t for t in (_clean_turn(i) for i in new_items) if t]
+        # values withheld anywhere in the new turns (or the project name) are scrubbed from all of them
+        raw = [i["text"] for i in new_items if isinstance(i.get("text"), str)]
+        withheld = quality.withheld_values("\n".join(raw + [project]))
+        new_turns = [t for t in (_clean_turn(i, withheld) for i in new_items) if t]
         if not new_turns:
             return "unchanged", existing if live else None
         turns = (existing["turns"] if live else []) + new_turns
         if not live:
+            # judged on the text as captured, so masking a long secret clause does not change what is kept
             users = sum(1 for t in turns if t["role"] == "user")
-            if users < min_user_turns or sum(len(t["text"]) for t in turns) < min_chars:
+            if users < min_user_turns or sum(len(t.strip()) for t in raw) < min_chars:
                 return "too-short", None
         dropped = existing.get("dropped_turns", 0) if live else 0
         while len(turns) > 1 and sum(len(t["text"]) for t in turns) > MAX_NOTE_CHARS:
             turns.pop(0)
             dropped += 1
-        project = redact_secrets(project)[:40] or "unknown"
-        if find_secrets("\n".join([project] + [t["text"] for t in turns])):
+        # nothing is written if a secret pattern still matches after redaction and masking (checked before the
+        # withheld-value scrub, which is an extra layer on top)
+        check = [_masked(project)] + [_masked(t.strip()) for t in raw]
+        check += [t["text"] for t in (existing["turns"] if live else [])]
+        if _still_secret("\n".join(check)):
             return "refused-secret", None
+        project = redact_for_note(project, withheld)[:40] or "unknown"
         note = {
             "version": FORMAT_VERSION,
             "id": existing["id"] if existing else f"{source}-{new_session_id()}",
