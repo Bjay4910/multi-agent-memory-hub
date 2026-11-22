@@ -927,9 +927,14 @@ Raw and temporary, unlike the curated graph above.
   (redact.py, unchanged; run on each piece between `[REDACTED]` markers, so
   it does not half-mask a token or swallow `&page=2` after a masked
   `api_key=`). The working layer keeps only some of the extraction
-  filter's matches (`working._keep`; redact.py's are all kept):
+  filter's matches (`working._keep`; redact.py's are all kept). Each match
+  is judged by the label that opened it in the extraction filter's own
+  pattern, so "The password for auth module is x" is judged by
+  `password`, not by `auth`; a weak label directly followed by another
+  label is judged by that one ("auth token"):
 
-  - **Strong labels: always masked.** Every label of
+  - **Strong labels: masked unless the value is a flag clause or the label
+    is followed by a noun (both below).** Every label of
     `quality.SECRET_LABELS` except the four weak ones below: `client
     secret`, `secret key`, `api key`, `access key`, `private key`,
     `passphrase`, `passcode`, `password`, `passwd`, `pwd`, `pass`, `pw`,
@@ -937,10 +942,18 @@ Raw and temporary, unlike the curated graph above.
     `psk`, `secret code`, `seed phrase`, `auth header`, `credentials`,
     `mot de passe`, `contraseña`, `passwort`, `密码`, `パスワード`, `jwt`,
     `totp`, `hmac`, `license key` (a space may also be `_` or `-`). Also
-    strong: a variable name (a label with a `NAME_` prefix: `GITHUB_TOKEN`,
-    `api_key`, `DB_SECRET`), and `token` or `key` after `api`, `access`,
-    `auth`, `bearer`, `secret` or `refresh` ("access token", "refresh
-    token", "auth token"). The fixed forms (token shapes, `Authorization:`
+    strong: an upper-case variable name (`GITHUB_TOKEN`, `DB_PASSWORD`,
+    `DB_SECRET`); a lower-case snake_case name only when it ends in `_key`,
+    `_token`, `_secret` or `_password` after one of `api`, `access`,
+    `secret`, `private`, `auth`, `bearer`, `client`, `session`, `signing`,
+    `encryption`, `ssh`, `jwt`, `aws`, `refresh`, `webhook` (`api_key`,
+    `client_secret`, `access_token`, `my_api_key`). Any other snake_case
+    name (`foreign_key`, `primary_key`, `sort_key`, `cache_key`,
+    `source_key`, and also `db_password` and `session_cookie`) is read like
+    a label followed by a noun: only a secret-shaped value is masked. And
+    `token` or `key` after `api`, `access`, `auth`, `bearer`, `secret` or
+    `refresh` ("access token", "refresh token", "auth token"). The fixed
+    forms (token shapes, `Authorization:`
     headers, `curl -u`, cookies, command-line flags such as
     `--password=`, `user:pass@` in URLs, upper-case variable names such as
     `PGPASSWORD=`, JSON lists under a plural key) are always masked too.
@@ -948,9 +961,11 @@ Raw and temporary, unlike the curated graph above.
     when the value is one word ("the token is swordfish", "Log in using
     token h8u7", `secret: "t6js"`), has a word with letters and digits
     ("updated our token to h5se today"), or has a secret-shaped word or
-    piece ("The key is X9kQ2mLp7Zz9 for prod"). A value of several plain
-    words is kept, as on main: "The key is to keep it simple.", "Auth is
-    handled by the gateway.", "Token = one word piece".
+    piece ("The key is X9kQ2mLp7Zz9 for prod"). A value of several words
+    of letters only is kept, as on main: "The key is to keep it simple.",
+    "Auth is handled by the gateway.", "Token = one word piece". Main
+    keeps the one-word and letters-and-digits values too, so these are
+    masked here and not on main (see Recall cost).
   - **A label followed by a noun** names a thing, not a credential: a weak
     label followed by any word other than a filler word (`for`, `of`, `on`,
     `to`, `as`, `the`, `my`, `is`, ...; "key point", "auth module", "token
@@ -961,9 +976,10 @@ Raw and temporary, unlike the curated graph above.
     masked.
   - **Flag values are kept:** a value that starts with a flag word (`on`,
     `off`, `true`, `false`, `yes`, `no`, `none`, `null`, `nil`, `enabled`,
-    `disabled`) and has nothing secret-shaped after it is a setting, not a
-    secret ("PRAGMA foreign_keys = ON at connection setup", "auth =
-    False").
+    `disabled`) and in which every later word is made of letters only is a
+    setting, not a secret ("PRAGMA foreign_keys = ON at connection setup",
+    "auth = False", "password: false alarm"). A later word with a digit or
+    a symbol makes it a value: "the password is on SzFDVb2" is masked.
 
   Then secret-shaped values are scrubbed across the note:
 
@@ -1046,10 +1062,14 @@ Raw and temporary, unlike the curated graph above.
   within its case limit (3 values per example, 525 inputs, plus the 45
   hostile inputs), captured through Claude Code, Antigravity and a direct
   save and read back through `room working list/show/search` and the MCP
-  tools; the same 175 examples with values from seed 3307, also through
-  Claude Code resume and Antigravity Stop hooks (0 leaks); and the
-  reviews' cases for secret-shaped values. Ordinary text in other turns
-  is not changed: the third review's 9 cases ("auth = False" then "retry
+  tools; the same 175 examples with values from seeds 3307, 4417 and 7719,
+  also through Claude Code resume and Antigravity Stop hooks (0 leaks);
+  and the reviews' cases for secret-shaped values. Ordinary text in other
+  turns is changed only where it repeats a secret-shaped value that was
+  masked in another turn: then that value is scrubbed even when it is code
+  ("key = len(rows)" then "Call len(rows) here." is stored as "Call
+  [REDACTED]) here."; see Recall cost). These cases have their text
+  stored unchanged: the third review's 9 cases ("auth = False" then "retry
   is False", port 8080 then 9090, a PEM block then "keep the repository
   private", and so on), 40 more ordinary sentences, the fourth review's 22
   probes ("auth = read-only" then "Open memory.db in read-only mode.",
@@ -1090,9 +1110,20 @@ Raw and temporary, unlike the curated graph above.
     `Blue-Horse-Lamp`), CamelCase secrets made of word-like parts
     (`BlueHorseLamp`), dotted words, and 8-digit numbers that are valid
     dates;
-  - a value that starts with a flag word and goes on in plain words is not
-    masked at all: "password: false alarm", "password: true story",
-    "password: yes please", "token: none needed here";
+  - a value that starts with a flag word and in which every later word is
+    letters only is not masked at all: "password: false alarm", "password:
+    true story", "password: yes please", "token: none needed here" (xfail);
+  - a strong label followed by a noun such as `field` or `header`: "The
+    password field is tangerine" and "password field: tangerine" are not
+    masked (a secret-shaped value is);
+  - a lower-case snake_case name outside the credential whitelist:
+    "db_password = hunter2", "session_cookie = abc123x" and
+    "user_password: tangerine" are stored unchanged, as on main (xfail;
+    since review 6; da01302 masked them). Upper-case `DB_PASSWORD = hunter2`
+    and a secret-shaped value (`db_password = hunter2x9Q`) are masked;
+  - a hyphenated value of letters only in mixed case (`qvwrA-mzkpQ`) is
+    masked in its own turn but is ordinary, so a bare repeat in another
+    turn is not scrubbed;
   - a secret of several plain words behind a weak label (`key`, `token`,
     `auth`, `secret`) is not masked, the same as main: "the token is
     purple monkey dishwasher", "auth: tangerine basalt" (xfail);
@@ -1109,8 +1140,8 @@ Raw and temporary, unlike the curated graph above.
     it can also find text the room writes itself: `null` in the note's
     JSON (`"promoted_at": null`), or a short hex value inside a
     16-character turn hash (`b833` in `bc45a83b833…`, the hash of
-    `step:2`). These are not leaks; the seed-3307 table test blanks the
-    hashes before it checks;
+    `step:2`). These are not leaks; the seed-3307, 4417 and 7719 table
+    tests blank the hashes before they check;
   - `test_working_redaction.py::test_the_refusal_rule_uses_the_stronger_check`
     is a strict xfail since the fourth review: it simulates a missed mask
     by patching `quality.mask_credentials`, which the working layer no
@@ -1125,10 +1156,34 @@ Raw and temporary, unlike the curated graph above.
   the vault." is stored as "The password is [REDACTED].", by design. Main
   stores that sentence unchanged, so here the working layer is worse than
   main on purpose (main also stores "the password is swordfish" in the
-  clear). A weak label with a one-word value is masked too, even when
-  harmless ("auth = read-only", "key = isEnabled", `sorted(xs, key=len)`).
-  Weak labels followed by plain words or by a noun are not masked, the
-  same as main ("the key is port 8080" is kept). Checked through Claude Code,
+  clear). After a weak label (`key`, `auth`, `secret`, `token`), a value
+  of several words of letters only is kept, as on main ("the key is port
+  8080" is kept too, since `8080` has no letters). But a one-word value,
+  or a value with a word that has letters and digits or a secret-shaped
+  piece, is masked, and main keeps all of these. The cause: one word, or
+  a secret-shaped piece after a label, counts as a value. Developer tokens
+  are hit hardest. Each of these, written after `key =`, `auth:`, `the
+  secret is` and `the token is` (40 inputs), is masked here and kept by
+  main:
+
+  | Token | Masked here (all 4 labels) | Main |
+  |---|---|---|
+  | `Python3.13`, `OAuth2.0`, `PostgreSQL16`, `sha256sum`, `base64url` | yes | kept |
+  | `HTTP/1.1`, `C++/Rust`, `len(rows)` | yes | kept |
+  | `$AGENT_ROOM_HOME`, `~/.config/app` | yes | kept |
+
+  Across turns, a masked value that is secret-shaped is scrubbed from
+  later turns, code included. After `key = X` in one turn, "Call X here."
+  in a later turn is stored as:
+
+  | X | Later turn stored as |
+  |---|---|
+  | `len(rows)` | `Call [REDACTED]) here.` |
+  | `parseURL`, `getUserID`, `HTTPClient`, `JSONParser`, `xPosition`, `getStrLen` | `Call [REDACTED] here.` |
+
+  Main does neither: it stores both turns unchanged. The working layer is
+  opt-in (`room capture enable`) and favors secret safety over recall.
+  Checked through Claude Code,
   Antigravity and a direct save against origin/main (1fc1e59): these 13
   sentences are stored unchanged by both: "The key point is that we ship
   on Friday.", "The auth module is fine, no changes needed.", "Token

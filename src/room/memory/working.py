@@ -131,10 +131,11 @@ _FLAGS = frozenset({"on", "off", "true", "false", "yes", "no", "none", "null", "
 
 
 def _is_flag(value: str) -> bool:
-    """A setting, not a secret: the extraction filter's value starts with a flag word and nothing after it is
-    secret-shaped ("foreign_keys = ON at connection setup", "password: false done")."""
-    words = value.split()
-    return bool(words) and words[0].strip(_EDGE).lower() in _FLAGS and not any(_secret_shaped(w) for w in words[1:])
+    """A setting, not a secret: the extraction filter's value starts with a flag word and every word after it is a
+    plain word of letters only ("foreign_keys = ON at connection setup", "password: false done"). "on SzFDVb2" is
+    not a flag clause."""
+    words = [w.strip(_EDGE) for w in value.split()]
+    return bool(words) and words[0].lower() in _FLAGS and all(re.fullmatch(r"[A-Za-z]*", w) for w in words[1:])
 
 
 # Which of the extraction filter's matches the working layer keeps. Its labels "key", "token", "auth" and "secret" are
@@ -167,26 +168,61 @@ _NEXT_WORD = re.compile(r"[\"'`*]{0,2}[ \t_-]+(\[REDACTED\]|[A-Za-z]+)")
 _LABELLED = ("a", "h", "wu", "ct", "ps", "xml")
 
 
-def _label_before(text: str, start: int) -> "tuple[str, str] | None":
-    """(label, kind) of the last label before ``start``: kind "strong", "weak" (a weak label on its own) or "noun"
-    (a label followed by a noun: "key point", "API key header")."""
-    norm = quality._normalized(text[max(0, start - 400):start])[0]
-    labels = list(_LABEL_RE.finditer(norm))
-    if not labels:
+# A snake_case label is a credential name only with one of these prefixes before _key, _token, _secret or _password
+# (api_key, client_secret, access_token, my_api_key); foreign_key, primary_key, sort_key or cache_key are not.
+# An upper-case variable name (GITHUB_TOKEN, DB_PASSWORD) is always one.
+_CREDENTIAL_PREFIXES = frozenset("""api access secret private auth bearer client session signing encryption ssh jwt
+aws refresh webhook""".split())
+_CREDENTIAL_SUFFIXES = frozenset({"key", "token", "secret", "password"})
+
+
+def _openers(text: str) -> "dict[int, tuple[str, re.Match]]":
+    """For each labelled quality match in ``text``: the original start of its value -> (normalized text, the label
+    that opened the match). Built from quality's own pattern, so it is the label of that match, not another label
+    in its filler ("the password for auth module is x" opens with "password", not "auth")."""
+    norm, origin = quality._normalized(text)
+    out = {}
+    for m in quality._CREDENTIAL.finditer(norm):
+        kind = next((k for k, v in m.groupdict().items() if v), None)
+        if kind is None or not kind.startswith(_LABELLED) or kind == "arr" or m.start(kind) >= len(origin):
+            continue
+        label = _LABEL_RE.search(norm, m.start(), m.start(kind))
+        if label:
+            out[origin[m.start(kind)]] = (norm, label, m.start(kind))
+    return out
+
+
+def _label_before(text: str, start: int, openers: "dict | None" = None) -> "tuple[str, str] | None":
+    """(label, kind) of the label that opened the quality match whose value starts at ``start``: kind "strong",
+    "weak" (a weak label on its own) or "noun" (a label followed by a noun: "key point", "API key header"; also a
+    snake_case name that is not a credential name: "foreign_key")."""
+    found = (openers if openers is not None else _openers(text)).get(start)
+    if found is None:
         return None
-    m = labels[-1]
-    label = re.sub(r"[ _-]+", " ", m.group(0).lower()).strip()
-    if "_" in m.group(0).strip("_"):
-        return label, "strong"  # a variable name: GITHUB_TOKEN, DB_SECRET, api_key
+    norm, m, value_at = found
+    # a weak label directly followed by another label is read as that label ("auth token" -> "token" after "auth")
+    if m.group(0).lower() in _WEAK_LABELS:
+        nxt = _LABEL_RE.match(norm, m.end() + len(norm[m.end():value_at]) - len(norm[m.end():value_at].lstrip(" \t_-")),
+                              value_at)
+        if nxt:
+            m = nxt
+    raw = m.group(0)
+    label = re.sub(r"[ _-]+", " ", raw.lower()).strip()
+    if "_" in raw.strip("_"):
+        if not re.search(r"[a-z]", raw):
+            return label, "strong"  # an upper-case variable name: GITHUB_TOKEN, DB_SECRET
+        parts = raw.lower().strip("_").split("_")
+        credential = parts[-1] in _CREDENTIAL_SUFFIXES and parts[-2] in _CREDENTIAL_PREFIXES
+        return label, ("strong" if credential else "noun")
     if label not in _WEAK_LABELS:
-        return label, ("noun" if _THING.match(norm, m.end()) else "strong")
+        return label, ("noun" if _THING.match(norm, m.end(), value_at) else "strong")
     if _STRONG_BEFORE.search(norm[:m.start()]):
         return label, "strong"  # access token, refresh token
-    nxt = _NEXT_WORD.match(norm, m.end())
+    nxt = _NEXT_WORD.match(norm, m.end(), value_at)  # a word between the label and the value, never the value
     return label, ("noun" if nxt and nxt.group(1).lower() not in _FILLER_START else "weak")
 
 
-def _keep(text: str, start: int, value: str, kind: str) -> bool:
+def _keep(text: str, start: int, value: str, kind: str, openers: "dict | None" = None) -> bool:
     """Whether the working layer keeps a quality match:
     - never a flag value (see _is_flag);
     - always a fixed form (a token shape, a header, a command-line flag, user:pass, ...);
@@ -199,7 +235,7 @@ def _keep(text: str, start: int, value: str, kind: str) -> bool:
         return False
     if kind == "arr" or not kind.startswith(_LABELLED):
         return True
-    found = _label_before(text, start)
+    found = _label_before(text, start, openers)
     if found is None or found[1] == "strong":
         return True
     pieces = {value} | set(re.split(r"\s+", value)) | set(quality._PIECE_SPLIT.split(value))
@@ -214,8 +250,9 @@ def _keep(text: str, start: int, value: str, kind: str) -> bool:
 def _credential_spans(text: str) -> list[tuple[int, int]]:
     """quality.credential_spans, minus what the working layer does not keep (see _keep); overlapping spans merged."""
     merged: list[tuple[int, int]] = []
+    openers = _openers(text)
     for s, e, value, kind in quality._credential_matches(text):
-        if not _keep(text, s, value, kind):
+        if not _keep(text, s, value, kind, openers):
             continue
         if merged and s <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(e, merged[-1][1]))
