@@ -139,31 +139,43 @@ def _regions(text: str) -> set[str]:
 _EDGE = ".,;:!?()[]{}<>'\"`"
 
 
-def _piece_counts(piece: str) -> bool:
-    """A piece of a masked region worth scrubbing elsewhere: 3+ digits, 5+ letters, or 3+ of anything else."""
-    if piece.isdigit():
-        return len(piece) >= 3
-    if re.fullmatch(r"[^\W\d_]+", piece):
-        return len(piece) >= 5
-    return len(piece) >= 3
+def _secret_shaped(value: str) -> bool:
+    """Whether a masked value is scrubbed from the note's other turns: a token or key form (quality's token
+    shapes, or a redact.py pattern such as sk-, ghp_, AKIA, a JWT or a PEM block), or 8+ characters with a
+    digit, a symbol (not "_"), or an upper-case letter after the first one and a lower-case letter in one word.
+    Never plain words or phrases, numbers under 8 digits, or values of 7 or fewer characters."""
+    v = value.strip()
+    if len(v) <= 7:
+        return False
+    if quality._TOKEN_SHAPES.fullmatch(v) or find_secrets(v):
+        return True
+    if v.isdigit():
+        return True  # 8+ digits
+    if re.search(r"\d", v) or re.search(r"[^\w\s]", v):
+        return True
+    return " " not in v and bool(re.search(r"[A-Z]", v[1:])) and bool(re.search(r"[a-z]", v))
 
 
 def _withheld(text: str) -> set[str]:
-    """Values to scrub from every turn of a note, from the raw ``text`` of one turn: each masked region whole
-    (2+ characters), its unescaped form, and its words and pieces (_piece_counts), even where the same word is
-    still visible elsewhere. The marker itself is never a value."""
+    """Secret-shaped values to scrub from every turn of a note, from the raw ``text`` of one turn: each masked
+    region whole, its unescaped form, its user:PASS and login user/PASS parts, the pieces between brackets, and
+    its words and pieces, kept only if _secret_shaped. The marker itself is never a value."""
     values: set[str] = set()
     for region in _regions(text):
         for form in {region, re.sub(r"\\(.)", r"\1", region)}:
             form = form.replace(REPLACEMENT, " ").strip()
-            if len(form) >= 2:
-                values.add(form)
-            for piece in re.split(r"\s+", form) + quality._PIECE_SPLIT.split(form):
-                piece = piece.strip(_EDGE)
-                if piece and _piece_counts(piece):
-                    values.add(piece)
-    values.discard(REPLACEMENT)
-    return values
+            if not form:
+                continue
+            candidates = {form}
+            if ":" in form and not re.search(r"\s", form):
+                candidates.add(form.split(":", 1)[1])
+            if "/" in form:
+                candidates.add(form.rsplit("/", 1)[1])
+            if form[0] in "(<[{":
+                candidates |= set(re.split(r"[()<>\[\]{}]+", form))
+            candidates |= set(re.split(r"\s+", form)) | set(quality._PIECE_SPLIT.split(form))
+            values |= {c.strip().strip(_EDGE) for c in candidates}
+    return {v for v in values if v and v != REPLACEMENT and _secret_shaped(v)}
 
 
 _MARKER = re.compile(re.escape(REPLACEMENT))
@@ -172,8 +184,8 @@ _MARKER = re.compile(re.escape(REPLACEMENT))
 def _scrub(text: str, values: "set[str] | frozenset[str]") -> str:
     """Replace each value (2+ characters) by [REDACTED], case-insensitively, on the normalized text (quality's
     NFKC, zero-width removal and folding of its Cyrillic lookalikes) mapped back to the original characters. A
-    value that starts or ends with a letter or digit only matches as a whole word there ("plan" leaves
-    "airplane" alone), and a match that overlaps an existing marker is skipped."""
+    match counts when at least one of its ends is not glued to a letter or digit (underscore and other symbols
+    count as a boundary: "tok_<s>_end", "xx@<s>yy"); a match that overlaps an existing marker is skipped."""
     wanted = sorted({n for n in (quality._normalized(v)[0].strip() for v in values) if len(n) >= 2}, key=len, reverse=True)
     if not text or not wanted:
         return text
@@ -181,9 +193,11 @@ def _scrub(text: str, values: "set[str] | frozenset[str]") -> str:
     markers = [m.span() for m in _MARKER.finditer(text)]
     spans = []
     for value in wanted:
-        pattern = ((r"(?<!\w)" if re.match(r"\w", value[0]) else "") + re.escape(value)
-                   + (r"(?!\w)" if re.match(r"\w", value[-1]) else ""))
-        for m in re.finditer(pattern, norm, re.I):
+        for m in re.finditer(re.escape(value), norm, re.I):
+            left = m.start() == 0 or not norm[m.start() - 1].isalnum() or not value[0].isalnum()
+            right = m.end() == len(norm) or not norm[m.end()].isalnum() or not value[-1].isalnum()
+            if not (left or right):
+                continue
             s, e = origin[m.start()], quality._end(text, origin, m.end())
             if not any(s < me and ms < e for ms, me in markers):
                 spans.append((s, e))
@@ -237,7 +251,10 @@ def _clean_turn(turn: dict, withheld: "set[str] | frozenset[str]" = frozenset())
     text = text[:MAX_NOTE_CHARS]
     if not text:
         return None
-    return {"role": role, "ts": str(turn.get("ts") or "")[:40], "text": text}
+    out = {"role": role, "ts": str(turn.get("ts") or "")[:40], "text": text}
+    if turn.get("key"):
+        out["key"] = _hash(str(turn["key"]))  # lets a later update rebuild this turn from the raw transcript text
+    return out
 
 
 def upsert(source: str, source_key: str, project: str, items: list[dict], *,
@@ -275,8 +292,15 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
         new_turns = [t for t in (_clean_turn(i, withheld) for i in new_valid) if t]
         if not new_turns:
             return "unchanged", existing if live else None
-        # the stored turns are masked again in full (a note written by older code gets the strong mask too)
-        old_turns = [{**t, "text": _scrub(_masked(t["text"]), withheld)} for t in old_turns]
+        # The stored turns are rebuilt from their raw text when the capture passed it again (so a secret that
+        # straddled the 2,000-character cut and is labelled only now is masked whole before the cut), otherwise
+        # masked again in full (a note written by older code gets the strong mask too).
+        raw_by_key = {_hash(str(i["key"])): i for i in valid if i.get("key")}
+        rebuilt = []
+        for t in old_turns:
+            again = _clean_turn(raw_by_key[t["key"]], withheld) if t.get("key") in raw_by_key else None
+            rebuilt.append(again or {**t, "text": _scrub(_masked(t["text"]), withheld)})
+        old_turns = rebuilt
         turns = old_turns + new_turns
         if not live:
             # judged on the text as captured, so masking a long secret clause does not change what is kept

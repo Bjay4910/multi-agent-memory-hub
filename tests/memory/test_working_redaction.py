@@ -184,6 +184,7 @@ def test_harmless_sentences_reach_the_note_unchanged(sentence, tmp_path, monkeyp
         assert "[REDACTED]" not in "\n".join(texts)
 
 
+@pytest.mark.xfail(strict=True, reason="dropped by design: see docs (a plain-word secret repeated bare is not scrubbed)")
 def test_a_secret_repeated_bare_in_a_later_turn_is_scrubbed_too(tmp_path, monkeypatch):
     env = Env(tmp_path, monkeypatch)
     items = [{"key": "u1", "role": "user", "ts": "t", "text": f"the password is swordfish\n{PAD_USER}"},
