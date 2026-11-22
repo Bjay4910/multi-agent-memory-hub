@@ -326,18 +326,42 @@ In plain words: the working layer is a short-term notebook of recent chats,
 and the long-term layer is the curated memory. Capture fills the notebook
 automatically, but only if you turn it on. Claude Code sessions are saved
 after they end; Antigravity CLI conversations are saved after each turn,
-because `agy` has no end-of-session hook. A best-effort pattern filter
-redacts secrets before anything is written; its patterns target known token
-shapes and `label=value` pairs, not every password, and they are not verified
-form by form (verified forms only exist for the extraction filter, in [Handled
-forms (tested)](docs/MEMORY.md#handled-forms-tested)). A prefix-less password ("the password
-is swordfish") is not redacted in the working layer (gap 3 in the
-[known gaps](docs/MEMORY.md#known-gaps); still open and needs a decision: stage 10 changed only
-the extraction side, and redact.py is unchanged). Notes expire after 14 days.
+because `agy` has no end-of-session hook. Before anything is written, a note
+is masked in extraction's order (the extraction filter's credential mask
+first, then redact.py's patterns), verified forms only: the exact examples in
+[Handled forms (tested)](docs/MEMORY.md#handled-forms-tested), so "the
+password is swordfish" is stored as "the password is [REDACTED]". After a
+strong label (password, passphrase, PIN, api key, ...) the rest of the clause
+is masked even when harmless ("The password is stored in the vault." is
+stored as "The password is [REDACTED]."). Multi-word labels may be written
+with `_` or `-` (`license_key`, `2fa_code`, `mot-de-passe`). A snake_case name
+is such a label when it ends in `_password`, `_passwd`, `_passphrase`,
+`_passcode`, `_pwd`, `_pw`, `_cookie`, `_pin`, `_otp`, `_totp`, `_pat`, `_psk`,
+`_hmac`, `_jwt` or `_credentials` (`db_password`, `card_pin`, `github_pat`), or
+in `_key`, `_token` or `_secret` after a credential prefix such as api,
+access, client or auth (`api_key`, `client_secret`); `foreign_key` or
+`sort_key` are not. After the weak labels key, token,
+auth and secret, a one-word value, one with a letters-and-digits word, or one
+with a secret-shaped word is masked ("the token is swordfish", and also "key =
+Python3.13", which main keeps). Several words of letters only, none of them
+secret-shaped, or a label followed by a noun with no secret-shaped word, are
+kept as main keeps them ("The key is to keep it simple.", "The key point is
+that we ship on Friday."); "the token is purple dlvpCtzswt" is masked. Only
+secret-shaped values are also scrubbed from the note's other turns: token
+forms, or one word of 8+ characters with a digit, a symbol, or mixed case (an
+upper-case letter after its first character and a lower-case letter; an
+all-capitals word is not), judged after Cyrillic lookalikes are read as Latin. Dates, versions, IPs,
+`host:port`, hyphenated words made only of letters (`Read-Only`,
+`Content-Type`) and CamelCase identifiers with word-like parts (`KeyError`,
+`maxStrengths`) are not. A plain-word secret repeated bare elsewhere is not
+caught. The remaining boundaries are
+listed under [Working layer](docs/MEMORY.md#working-layer); a note written
+before this change (gap 3) is masked again only if its session is captured
+again with a new turn. Notes expire after 14 days.
 
 - **Working layer** (`~/.agent-room/working/`): what was said in recent
   sessions, kept almost as it was (only your typed text and the assistant's
-  replies, with secrets redacted by the best-effort filter above; see gap 3). It is raw and temporary: each note expires
+  replies, with secrets masked by the filter above). It is raw and temporary: each note expires
   14 days after its last update. Nothing in it is sent to Hermes or the graph
   on its own.
 - **Long-term layer** (`memory.db`): curated facts, decisions and people,
@@ -372,12 +396,13 @@ background process and exits 0 at once, so it never slows down or breaks
 Claude Code. The background process reads the session transcript from
 `~/.claude/projects`, keeps only your typed text and the assistant's text
 (no thinking, tool calls, tool output, file contents, images, compaction
-summaries or harness notes; very long pastes are cut after redaction), redacts secrets with the best-effort pattern filter before anything is written,
+summaries or harness notes; very long pastes are cut after masking and scrubbing), masks secrets with the extraction filter's credential mask before anything is written,
 and stores it as one working note per session, tagged with the project folder
 name. A resumed session adds only its new turns. Very short sessions are
 skipped, and a note in which a secret pattern still matches is not saved.
-These are patterns only: a secret they do not recognise can be saved (gap 3 in
-the [known gaps](docs/MEMORY.md#known-gaps)).
+These are patterns only, verified forms only: a secret they do not recognise
+can still be saved (the working layer's boundaries are listed under [Working
+layer](docs/MEMORY.md#working-layer)).
 
 The room never captures itself: every CLI agent it starts gets
 `ROOM_SPAWNED=1`, which makes capture do nothing. Room calls to `claude` also
@@ -411,8 +436,8 @@ broken. The background process reads the conversation's transcript under
 `~/.gemini/antigravity-cli/brain/`, keeps only your typed request and the
 assistant's final reply of each turn (no thinking, tool calls, tool output,
 file contents, metadata or system messages; very long messages are cut and
-marked), redacts secrets (best-effort pattern filter; see gap 3 in the
-[known gaps](docs/MEMORY.md#known-gaps)) and updates one working note per conversation. Running
+marked), masks secrets (the extraction filter's credential mask; see the
+[Working layer](docs/MEMORY.md#working-layer) boundaries) and updates one working note per conversation. Running
 the hook again for the same turn stores nothing new. A conversation needs at
 least 2 typed messages and 400 characters before a note is created.
 
@@ -438,8 +463,12 @@ that id's path, so a payload cannot point capture at another file.
 
 The two working-layer tools only open files for reading: they never create,
 change or delete anything, and they skip expired notes. Their output goes
-through the same best-effort redaction, so a prefix-less password stored in a
-working note can be returned (gap 3 in the [known gaps](docs/MEMORY.md#known-gaps)). It is capped at 8,000
+through `redact_secrets` again, piece by piece between `[REDACTED]` markers
+(so "api_key=[REDACTED]&page=2" keeps "&page=2"). Notes captured since gap 3
+was closed are already masked as described under [Working
+layer](docs/MEMORY.md#working-layer); a note written before that change can
+still hold a prefix-less password until its session is captured again or it
+expires (gap 3 in the [known gaps](docs/MEMORY.md#known-gaps)). It is capped at 8,000
 characters and labelled as untrusted raw notes.
 
 How search and show stay safe:
@@ -696,7 +725,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 1,380 tests (counted with `pytest --collect-only`; 1,344 pass and 36 are expected failures, `xfail`, marking known gaps: 3 earlier ones and 33 strict ones for the stage 15 single-`=` base64 gap). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 3,356 tests (counted with `pytest --collect-only`; 3,208 pass and 148 are expected failures, `xfail`, marking known gaps: 3 earlier ones, 33 strict ones for the stage 15 single-`=` base64 gap, and 112 strict ones for the working-layer gaps listed under [Working layer](docs/MEMORY.md#working-layer)). Four of them are extraction secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), and thirteen are working-layer fuzz tests (525 Handled-forms inputs and 45 hostile inputs, each captured three ways and read back through every output, once with the stage G3 leak check and once with a stricter one that also splits values at "."; and the 525 Handled-forms inputs again with seeds 3307, 4417 and 7719, each captured three ways, through a resumed Claude Code session and through Antigravity Stop hooks), so the suite takes about ten minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

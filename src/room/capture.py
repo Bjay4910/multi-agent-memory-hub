@@ -104,16 +104,27 @@ def log_event(status: str, project: str = "") -> None:
 
 # -- transcript parsing --------------------------------------------------------------------
 
-def clean_text(text: str) -> str:
-    """Strip harness wrappers, redact, then cut. Redacting first means a secret that
-    straddles the cut is removed whole, not left as a fragment too short to match."""
+def strip_text(text: str) -> str:
+    """The typed text without harness wrappers ("" for an interrupt marker). Not masked: the working layer masks
+    it, scrubs every value withheld anywhere in the note, and only then cuts it to MAX_TURN_CHARS."""
     text = _WRAPPERS.sub("", text).strip()
-    if _INTERRUPT.match(text):
-        return ""
-    text = redact_secrets(text)
-    if len(text) > MAX_TURN_CHARS:
-        text = text[:MAX_TURN_CHARS] + f"\n[... {len(text) - MAX_TURN_CHARS:,} characters cut]"
-    return text
+    return "" if _INTERRUPT.match(text) else text
+
+
+def clean_parts(text: str) -> tuple[str, str]:
+    """(raw, cleaned) for one text on its own: stripped, then masked (working.redact_for_note), then cut."""
+    text = strip_text(text)
+    if not text:
+        return "", ""
+    masked = working.redact_for_note(text)
+    if len(masked) > MAX_TURN_CHARS:
+        masked = masked[:MAX_TURN_CHARS] + f"\n[... {len(masked) - MAX_TURN_CHARS:,} characters cut]"
+    return text, masked
+
+
+def clean_text(text: str) -> str:
+    """Strip harness wrappers, mask, then cut (see clean_parts)."""
+    return clean_parts(text)[1]
 
 
 def _texts(entry: dict) -> list[str]:
@@ -148,18 +159,20 @@ def parse_transcript(path: Path) -> tuple[set[str], list[dict]]:
             # Compaction summaries are written by the model, not typed by the user.
             if entry.get("isCompactSummary") or entry.get("isVisibleInTranscriptOnly"):
                 continue
-            text = "\n\n".join(t for t in (clean_text(x) for x in _texts(entry)) if t)
+            text = "\n\n".join(t for t in (strip_text(x) for x in _texts(entry)) if t)
             if not text:
                 continue
             key = entry.get("uuid") if isinstance(entry.get("uuid"), str) else hashlib.sha256(line.encode()).hexdigest()
-            items.append({"key": key, "role": kind, "ts": entry.get("timestamp"), "text": text})
+            # raw text: working.upsert masks, scrubs across the note, then cuts (in memory until then)
+            items.append({"key": key, "role": kind, "ts": entry.get("timestamp"), "text": text, "raw": text,
+                          "cut": MAX_TURN_CHARS})
     return entrypoints, items
 
 
 def project_tag(cwd: str) -> str:
-    name = Path(cwd).name if cwd else ""
-    tag = re.sub(r"[^A-Za-z0-9 _.\-]+", "-", name).strip(" -.")[:40]
-    return redact_secrets(tag) or "unknown"
+    """The project folder's name on its own: masked first (as written), then made safe and cut to 40 characters.
+    Capture passes the raw name to working.upsert instead, which also scrubs the note's values from it."""
+    return working.tag(working.redact_for_note(Path(cwd).name) if cwd else "")
 
 
 # -- capture -------------------------------------------------------------------------------
@@ -173,30 +186,33 @@ def _valid_hook(hook: object) -> bool:
 
 def capture_claude(hook: dict) -> str:
     """Store one Claude Code session in the working layer. Returns a status word."""
+    return _capture_claude(hook)[0]
+
+
+def _capture_claude(hook: dict) -> tuple[str, dict | None]:
+    """(status, the note as written, if one was)."""
     if os.environ.get(ROOM_SPAWNED_ENV) == "1":
-        return "room-spawned"
+        return "room-spawned", None
     if not is_enabled():
-        return "disabled"
+        return "disabled", None
     if not _valid_hook(hook):
-        return "bad-input"
+        return "bad-input", None
     path = Path(hook["transcript_path"]).expanduser().resolve()
     root = projects_root().resolve()
     if root not in path.parents or path.suffix != ".jsonl":
-        return "outside-projects"
+        return "outside-projects", None
     if not path.is_file():
-        return "missing-transcript"
+        return "missing-transcript", None
     if path.stat().st_size > MAX_TRANSCRIPT_BYTES:
-        return "too-large"
+        return "too-large", None
     entrypoints, items = parse_transcript(path)
     if any(ep.startswith("sdk") for ep in entrypoints):
-        return "non-interactive"
-    for item in items:
-        item["text"] = redact_secrets(item["text"])  # before anything is stored
+        return "non-interactive", None
     try:
-        status, _ = working.upsert(SOURCE, hook["session_id"], project_tag(hook.get("cwd", "")), items)
+        # the raw folder name: upsert masks it, scrubs the note's values from it, then makes it safe and cuts it
+        return working.upsert(SOURCE, hook["session_id"], Path(hook.get("cwd") or "").name, items)
     except working.WorkingSafetyError:
-        return "refused-location"
-    return status
+        return "refused-location", None
 
 
 def run_hook(raw: str) -> int:
@@ -224,9 +240,9 @@ def run_worker(raw: str) -> int:
     """The detached worker: capture, log the status (no content). Never raises."""
     try:
         hook = json.loads(raw[:MAX_HOOK_INPUT])
-        status = capture_claude(hook)
-        project = project_tag(hook.get("cwd", "")) if isinstance(hook, dict) and isinstance(hook.get("cwd"), str) else ""
-        log_event(status, project if status in ("created", "updated") else "")
+        status, note = _capture_claude(hook)
+        # the project name exactly as stored in the note (masked and scrubbed with the turns' values)
+        log_event(status, note["project"] if note and status in ("created", "updated") else "")
     except Exception as exc:  # noqa: BLE001
         log_event(f"error:{type(exc).__name__}")
     return 0
