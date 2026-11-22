@@ -127,11 +127,10 @@ def test_guard_table_7719_never_leaks(mode, tmp_path, monkeypatch):
     assert not found_leaks, f"{len(found_leaks)} leaks, first: {found_leaks[:10]}"
 
 
-@pytest.mark.xfail(strict=True, reason="documented gap (review 6, same as main): a lower-case snake_case name whose "
-                   "prefix is not on the credential whitelist is not a label, so a short value after it is kept")
 @pytest.mark.parametrize("text, value", [("db_password = hunter2", "hunter2"), ("session_cookie = abc123x", "abc123x"),
                                          ("user_password: tangerine", "tangerine")])
-def test_gap_snake_case_name_outside_the_whitelist(text, value, tmp_path, monkeypatch):
+def test_snake_case_name_with_a_strong_suffix_is_masked(text, value, tmp_path, monkeypatch):
+    """Was a strict xfail (review 6 gap); closed in G3h by the strong suffixes _password, _passwd, _cookie, _pin."""
     env = Env(tmp_path, monkeypatch)
     run(env, "direct", text, "Harmless follow-up message.")
     assert leaks(env, value) == []

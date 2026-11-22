@@ -943,14 +943,18 @@ Raw and temporary, unlike the curated graph above.
     `mot de passe`, `contraseña`, `passwort`, `密码`, `パスワード`, `jwt`,
     `totp`, `hmac`, `license key` (a space may also be `_` or `-`). Also
     strong: an upper-case variable name (`GITHUB_TOKEN`, `DB_PASSWORD`,
-    `DB_SECRET`); a lower-case snake_case name only when it ends in `_key`,
-    `_token`, `_secret` or `_password` after one of `api`, `access`,
-    `secret`, `private`, `auth`, `bearer`, `client`, `session`, `signing`,
+    `DB_SECRET`); a lower-case snake_case name when it ends in `_password`,
+    `_passwd`, `_cookie` or `_pin`, whatever comes before (`db_password`,
+    `admin_passwd`, `session_cookie`, `card_pin`), or when it ends in
+    `_key`, `_token` or `_secret` after one of `api`, `access`, `secret`,
+    `private`, `auth`, `bearer`, `client`, `session`, `signing`,
     `encryption`, `ssh`, `jwt`, `aws`, `refresh`, `webhook` (`api_key`,
     `client_secret`, `access_token`, `my_api_key`). Any other snake_case
     name (`foreign_key`, `primary_key`, `sort_key`, `cache_key`,
-    `source_key`, and also `db_password` and `session_cookie`) is read like
-    a label followed by a noun: only a secret-shaped value is masked. And
+    `source_key`) is read like a label followed by a noun: only a
+    secret-shaped value is masked. A name that only contains one of these
+    words without ending in it (`password_reset_flow`, `cookie_banner`,
+    `pin_code_layout`, `passwd_file_path`) is not a label. And
     `token` or `key` after `api`, `access`, `auth`, `bearer`, `secret` or
     `refresh` ("access token", "refresh token", "auth token"). The fixed
     forms (token shapes, `Authorization:`
@@ -1116,11 +1120,9 @@ Raw and temporary, unlike the curated graph above.
   - a strong label followed by a noun such as `field` or `header`: "The
     password field is tangerine" and "password field: tangerine" are not
     masked (a secret-shaped value is);
-  - a lower-case snake_case name outside the credential whitelist:
-    "db_password = hunter2", "session_cookie = abc123x" and
-    "user_password: tangerine" are stored unchanged, as on main (xfail;
-    since review 6; da01302 masked them). Upper-case `DB_PASSWORD = hunter2`
-    and a secret-shaped value (`db_password = hunter2x9Q`) are masked;
+  - a lower-case snake_case name ending in `_key`, `_token` or `_secret`
+    with a prefix outside the whitelist above (`db_secret = tangerine`,
+    `deploy_token = hunter2`) keeps only a secret-shaped value masked;
   - a hyphenated value of letters only in mixed case (`qvwrA-mzkpQ`) is
     masked in its own turn but is ordinary, so a bare repeat in another
     turn is not scrubbed;

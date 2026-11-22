@@ -168,12 +168,14 @@ _NEXT_WORD = re.compile(r"[\"'`*]{0,2}[ \t_-]+(\[REDACTED\]|[A-Za-z]+)")
 _LABELLED = ("a", "h", "wu", "ct", "ps", "xml")
 
 
-# A snake_case label is a credential name only with one of these prefixes before _key, _token, _secret or _password
+# A snake_case label is a credential name with one of these prefixes before _key, _token, _secret or _password
 # (api_key, client_secret, access_token, my_api_key); foreign_key, primary_key, sort_key or cache_key are not.
 # An upper-case variable name (GITHUB_TOKEN, DB_PASSWORD) is always one.
 _CREDENTIAL_PREFIXES = frozenset("""api access secret private auth bearer client session signing encryption ssh jwt
 aws refresh webhook""".split())
 _CREDENTIAL_SUFFIXES = frozenset({"key", "token", "secret", "password"})
+# ... and with any prefix, a name ending in one of these is one (db_password, admin_passwd, session_cookie, card_pin)
+_STRONG_SUFFIXES = frozenset({"password", "passwd", "cookie", "pin"})
 
 
 def _openers(text: str) -> "dict[int, tuple[str, re.Match]]":
@@ -212,7 +214,8 @@ def _label_before(text: str, start: int, openers: "dict | None" = None) -> "tupl
         if not re.search(r"[a-z]", raw):
             return label, "strong"  # an upper-case variable name: GITHUB_TOKEN, DB_SECRET
         parts = raw.lower().strip("_").split("_")
-        credential = parts[-1] in _CREDENTIAL_SUFFIXES and parts[-2] in _CREDENTIAL_PREFIXES
+        credential = parts[-1] in _STRONG_SUFFIXES or (parts[-1] in _CREDENTIAL_SUFFIXES
+                                                        and parts[-2] in _CREDENTIAL_PREFIXES)
         return label, ("strong" if credential else "noun")
     if label not in _WEAK_LABELS:
         return label, ("noun" if _THING.match(norm, m.end(), value_at) else "strong")
