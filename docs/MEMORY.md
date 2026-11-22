@@ -989,10 +989,13 @@ Raw and temporary, unlike the curated graph above.
     masked.
   - **Flag values are kept:** a value that starts with a flag word (`on`,
     `off`, `true`, `false`, `yes`, `no`, `none`, `null`, `nil`, `enabled`,
-    `disabled`) and in which every later word is made of letters only is a
-    setting, not a secret ("PRAGMA foreign_keys = ON at connection setup",
-    "auth = False", "password: false alarm"). A later word with a digit or
-    a symbol makes it a value: "the password is on SzFDVb2" is masked.
+    `disabled`) is kept only when every later word is made of letters only
+    and none of those words is secret-shaped (see "Which values" below):
+    "PRAGMA foreign_keys = ON at connection setup", "auth = False" and
+    "password: false alarm" stay. A later word with a digit or a symbol, or
+    a later word of letters only that is secret-shaped, makes it a value:
+    "the password is on SzFDVb2" and "the password is on dlvpCtzswt" (mixed
+    case) are masked.
 
   Then secret-shaped values are scrubbed across the note:
 
@@ -1082,14 +1085,17 @@ Raw and temporary, unlike the curated graph above.
   turns is changed only where it repeats a secret-shaped value that was
   masked in another turn: then that value is scrubbed even when it is code
   ("key = len(rows)" then "Call len(rows) here." is stored as "Call
-  [REDACTED]) here."; see Recall cost). These cases have their text
-  stored unchanged: the third review's 9 cases ("auth = False" then "retry
-  is False", port 8080 then 9090, a PEM block then "keep the repository
-  private", and so on), 40 more ordinary sentences, the fourth review's 22
-  probes ("auth = read-only" then "Open memory.db in read-only mode.",
-  "key = 2026-11-22", "key = KeyError", `key=str.lower`, and so on, on
-  all four paths, and all 22 first lines in one turn) and the "PRAGMA
-  foreign_keys = ON" sentence have their text stored unchanged. For 20
+  [REDACTED]) here."; see Recall cost). In these cases the later,
+  ordinary turn is stored unchanged: the third review's 9 cases ("auth =
+  False" then "retry is False", port 8080 then 9090, a PEM block then
+  "keep the repository private", and so on), 40 more ordinary sentences,
+  and the fourth review's 22 probes ("auth = read-only" then "Open
+  memory.db in read-only mode.", "key = KeyError" then "Catch KeyError
+  and fall back to default.", and so on, on all four paths, and with all
+  22 first lines in one turn). The first line of a probe is masked by the
+  rules above when it holds a labelled value: "key = KeyError" is stored
+  as "key = [REDACTED]" (19 of the 22 first lines are masked). The
+  "PRAGMA foreign_keys = ON" sentence is stored unchanged. For 20
   ordinary sessions the stored text of every turn, and the project name,
   are the same as main stores. The note files are not byte-identical to
   main's: each stored turn now also has a `key` field (a hash of the
@@ -1125,8 +1131,11 @@ Raw and temporary, unlike the curated graph above.
     (`BlueHorseLamp`), dotted words, and 8-digit numbers that are valid
     dates;
   - a value that starts with a flag word and in which every later word is
-    letters only is not masked at all: "password: false alarm", "password:
-    true story", "password: yes please", "token: none needed here" (xfail);
+    letters only and none of them is secret-shaped is not masked at all:
+    "password: false alarm", "password: true story", "password: yes
+    please", "token: none needed here" stay (xfail). A secret-shaped later
+    word is still masked: "the password is on dlvpCtzswt" is stored as
+    "the password is [REDACTED]";
   - a strong label followed by a noun such as `field` or `header`: "The
     password field is tangerine" and "password field: tangerine" are not
     masked (a secret-shaped value is);
@@ -1134,6 +1143,11 @@ Raw and temporary, unlike the curated graph above.
     with a prefix outside the whitelist above (`db_secret = tangerine`,
     `deploy_token = hunter2`) keeps only a secret-shaped value masked
     (xfail);
+  - a lower-case snake_case name ending in `_pass` (`ssh_pass =
+    gagaveqora`) stores a plain value in the clear, as on main: `_pass` is
+    not in the strong-suffix list, so the name is read like a label
+    followed by a noun and only a secret-shaped value is masked
+    (`ssh_pass = X9kQ2mLp7Zz9` is);
   - a camelCase name (`userPassword = zanewetiri`, `dbPassword:
     zanewetiri`) is not a label in the extraction filter's pattern, so it
     is not masked (xfail);

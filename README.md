@@ -341,14 +341,16 @@ is such a label when it ends in `_password`, `_passwd`, `_passphrase`,
 in `_key`, `_token` or `_secret` after a credential prefix such as api,
 access, client or auth (`api_key`, `client_secret`); `foreign_key` or
 `sort_key` are not. After the weak labels key, token,
-auth and secret, a one-word value or one with a letters-and-digits word is
-masked ("the token is swordfish", and also "key = Python3.13", which main
-keeps), but several words of letters only, or a label followed by a noun,
-are kept as main keeps them ("The key is to keep it simple.", "The key point
-is that we ship on Friday."). Only secret-shaped values are also scrubbed from
-the note's other turns: token forms, or one word of 8+ characters with a
-digit, a symbol, or an upper-case letter after its first character, judged
-after Cyrillic lookalikes are read as Latin. Dates, versions, IPs,
+auth and secret, a one-word value, one with a letters-and-digits word, or one
+with a secret-shaped word is masked ("the token is swordfish", and also "key =
+Python3.13", which main keeps). Several words of letters only, none of them
+secret-shaped, or a label followed by a noun with no secret-shaped word, are
+kept as main keeps them ("The key is to keep it simple.", "The key point is
+that we ship on Friday."); "the token is purple dlvpCtzswt" is masked. Only
+secret-shaped values are also scrubbed from the note's other turns: token
+forms, or one word of 8+ characters with a digit, a symbol, or mixed case (an
+upper-case letter after its first character and a lower-case letter; an
+all-capitals word is not), judged after Cyrillic lookalikes are read as Latin. Dates, versions, IPs,
 `host:port`, hyphenated words made only of letters (`Read-Only`,
 `Content-Type`) and CamelCase identifiers with word-like parts (`KeyError`,
 `maxStrengths`) are not. A plain-word secret repeated bare elsewhere is not
