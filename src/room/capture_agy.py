@@ -180,8 +180,9 @@ def parse_transcript(path: Path) -> tuple[str | None, list[dict]]:
             # Only the reply text: never 'thinking' or 'tool_calls'. A later reply in the same turn replaces it.
             text = capture.strip_text(content)
             if text:
-                if pending:  # a later reply replaces it; its raw text is still used for withholding (never stored)
-                    items.append({"role": "draft", "raw": pending["raw"]})
+                if pending:  # a later reply replaces it. Never stored as a new turn: its raw text is used for
+                    # withholding, and its key lets working.upsert rebuild it if an earlier Stop hook stored it.
+                    items.append({"role": "draft", "key": pending["key"], "raw": pending["raw"], "cut": pending["cut"]})
                 pending = {"key": key, "role": "assistant", "ts": entry.get("created_at"), "text": text, "raw": text,
                            "cut": capture.MAX_TURN_CHARS}
         # GENERIC (tool output, file contents) and SYSTEM_MESSAGE are dropped.

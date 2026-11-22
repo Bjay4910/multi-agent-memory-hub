@@ -911,9 +911,11 @@ Raw and temporary, unlike the curated graph above.
   the key folder.
 - **What:** `id` (`claude-code-<UTC stamp>-<hex>` or `antigravity-...`), `source`, `project` (the
   project folder name), `captured_at`, `updated_at`, `expires_at`,
-  `promoted_at`, `dropped_turns`, and `turns` (`role` `user` or `assistant`,
-  `ts`, `text`). The Claude Code session id or Antigravity conversation id is
-  stored only as a hash, used to find the note again when the session goes on.
+  `promoted_at`, `dropped_turns`, `turn_keys`, and `turns` (`role` `user` or
+  `assistant`, `ts`, `text`, and `key` when the capture gave the turn one). The
+  Claude Code session id or Antigravity conversation id, and each turn's id in
+  the transcript (`turn_keys` and `key`), are stored only as 16-character
+  hashes, used to find the note and its turns again when the session goes on.
 - **Written by:** `room capture claude` (the Claude Code `SessionEnd` hook,
   opt-in) and `room capture antigravity` (the Antigravity CLI `Stop` hook,
   opt-in with the same switch; it runs after each turn and keeps only your typed
@@ -924,21 +926,39 @@ Raw and temporary, unlike the curated graph above.
   on the raw text first (`quality.mask_credentials`), then `redact_secrets`
   (redact.py, unchanged; run on each piece between `[REDACTED]` markers, so
   it does not half-mask a token or swallow `&page=2` after a masked
-  `api_key=`). Then secret-shaped values are scrubbed across the note:
+  `api_key=`). One difference from extraction: a value that starts with a
+  flag word (`on`, `off`, `true`, `false`, `yes`, `no`, `none`, `null`, `nil`,
+  `enabled`, `disabled`) and has nothing secret-shaped after it is a setting,
+  not a secret, and is kept ("PRAGMA foreign_keys = ON at connection setup",
+  "auth = False"). Then secret-shaped values are scrubbed across the note:
 
   - **Which values.** Only secret-shaped ones, taken from each region the
     two steps above mask in a turn's raw text (code blocks included): the
     region whole, its unescaped form, its `user:PASS` and login
     `user/PASS` parts, the pieces between brackets, and its words and
-    pieces. A value is secret-shaped if it is a token or key form
-    (quality's token shapes, or a redact.py pattern such as `sk-`, `ghp_`,
-    `AKIA`, a JWT or a PEM block), or has 8 or more characters with a
-    digit, a symbol other than `_`, or an upper-case letter after the first
-    one and a lower-case letter in one word. Plain words and phrases,
-    numbers under 8 digits and values of 7 or fewer characters are never
-    scrubbed from other turns, so a weak or plain-word secret repeated bare
-    in another turn is not caught (see the list below). The marker
-    `[REDACTED]` is never a value.
+    pieces. Each value is judged on its normalized form (zero-width
+    characters removed, quality's Cyrillic lookalikes read as Latin, so
+    `qvwr` + Cyrillic А + `mzkp` is judged as `qvwrAmzkp`). It is
+    secret-shaped if it is a token or key form (quality's token shapes, or
+    a redact.py pattern such as `sk-`, `ghp_`, `AKIA`, a JWT or a PEM
+    block), or if it is one word (no whitespace) of 8 or more characters
+    that is not ordinary and has a digit or a symbol other than `_`, or
+    mixes upper and lower case without being a plain CamelCase identifier,
+    or had a Cyrillic lookalike or zero-width character inside Latin
+    letters. Ordinary, never scrubbed from other turns: phrases (anything
+    with a space), plain lower-case words, values of 7 or fewer characters,
+    valid calendar dates (`2026-11-22`, `20261122`), versions
+    (`2.4.1-beta`), IP addresses, `host:port`, `http(s)://` URLs without a
+    `user:password` part, lower-case hyphenated words (`read-only`,
+    `not-found`), contractions (`shouldn't`), words joined by `/`
+    (`True/False`), CamelCase identifiers made of word-like parts (2+
+    letters with a vowel each: `KeyError`, `defaultValue`, `isEnabled`; not
+    `qvwrAmzkp` or `kAmezovqr`), and dotted expressions of such words
+    (`str.lower`, `os.path.join`). Values of 8 or more digits, and digits
+    with symbols, still count unless they are one of those ordinary forms.
+    So a weak or plain-word secret repeated bare in another turn is not
+    caught (see the list below). The marker `[REDACTED]` is never a
+    value.
   - **From which turns.** Every turn the capture passes (both captures
     re-read the whole transcript, so a resumed Claude Code session or a
     later Antigravity Stop hook still sees the first turns; the raw text
@@ -949,15 +969,22 @@ Raw and temporary, unlike the curated graph above.
     when at least one of its ends is not glued to a letter or digit; `_`
     and other symbols count as a boundary (`tok_<secret>_end`,
     `prod_<secret>_v2`, `xx@<secret>yy`). A match that overlaps an existing
-    marker is skipped. Matching runs on the normalized text: zero-width
-    characters are removed and quality's Cyrillic lookalikes (а е о р с х
-    and their capitals) are read as Latin; checked with а and U+200B.
+    marker is skipped. Both the secret-shaped judgement and the matching
+    run on normalized text: zero-width characters are removed and quality's
+    Cyrillic lookalikes (а е о р с х and their capitals) are read as Latin;
+    checked with а, А, е, о and U+200B, on Claude Code (one capture and
+    resumed), Antigravity Stop hooks and a direct save.
   - **Cuts.** A captured message is cut at 2,000 characters only after it
-    is masked and scrubbed. When a note is updated, its earlier turns are
-    rebuilt from their raw text with the new values before the cut, so a
-    secret-shaped value across the cut is masked whole even when it is
-    labelled only in a later capture (checked with Claude Code resume and
-    Antigravity Stop hooks).
+    is masked and scrubbed, and never through a `[REDACTED]` marker: when
+    the 2,000th character falls inside one, the cut is made before it (the
+    same for the 8,000-character note limit). When a note is updated, its
+    earlier turns are rebuilt from their raw text with the new values
+    before the cut, so a secret-shaped value across the cut is masked whole
+    even when it is labelled only in a later capture. This includes an
+    Antigravity reply that an earlier Stop hook stored and a later reply in
+    the same turn replaced: the capture passes it as a draft with its key
+    and raw text. Checked with Claude Code resume and Antigravity Stop
+    hooks.
   - **Project name.** The capture passes the raw folder name; it is masked,
     scrubbed with the note's values, then made safe (letters, digits,
     space, `_ . -`) and cut to 40 characters; checked for secrets across the
@@ -965,21 +992,33 @@ Raw and temporary, unlike the curated graph above.
     capture log records the name exactly as stored in the note.
   - **Refusal.** If a secret pattern still matches one turn on its own, or
     the project name (redact.py's, checked piece by piece, or the
-    extraction filter's), nothing is written.
+    extraction filter's, without flag values), nothing is written. The
+    `[... N characters cut]` notice is the working layer's own text and is
+    left out of this check, so a label just before a cut ("token: " then
+    the notice) does not make a later capture refuse the note.
 
   What is verified, by `tests/memory/test_working_redaction.py`,
   `test_working_redaction_fuzz.py` and `test_working_redaction_review*.py`
-  (three review rounds): the exact examples in [Handled forms
+  (four review rounds): the exact examples in [Handled forms
   (tested)](#handled-forms-tested), with only the secret value changed to
   another value of the same kind, at least the row's minimum length and
   within its case limit (3 values per example, 525 inputs, plus the 45
   hostile inputs), captured through Claude Code, Antigravity and a direct
   save and read back through `room working list/show/search` and the MCP
-  tools; and the reviews' cases for secret-shaped values. Ordinary text in
-  other turns is not changed: the third review's 9 cases ("auth = False"
-  then "retry is False", port 8080 then 9090, a PEM block then "keep the
-  repository private", and so on) and 40 more ordinary sentences are stored
-  unchanged, and 20 ordinary sessions are stored exactly as before.
+  tools; the same 175 examples with values from seed 3307, also through
+  Claude Code resume and Antigravity Stop hooks (0 leaks); and the
+  reviews' cases for secret-shaped values. Ordinary text in other turns
+  is not changed: the third review's 9 cases ("auth = False" then "retry
+  is False", port 8080 then 9090, a PEM block then "keep the repository
+  private", and so on), 40 more ordinary sentences, the fourth review's 22
+  probes ("auth = read-only" then "Open memory.db in read-only mode.",
+  "key = 2026-11-22", "key = KeyError", `key=str.lower`, and so on, on
+  all four paths, and all 22 first lines in one turn) and the "PRAGMA
+  foreign_keys = ON" sentence have their text stored unchanged. For 20
+  ordinary sessions the stored text of every turn, and the project name,
+  are the same as main stores. The note files are not byte-identical to
+  main's: each stored turn now also has a `key` field (a hash of the
+  turn's transcript id).
 
   Not covered (each checked by running it; the ones marked xfail are strict
   xfails in the tests):
@@ -1002,15 +1041,30 @@ Raw and temporary, unlike the curated graph above.
     variable prefix ("SECRET_VALUE=x"), values below a row's minimum length,
     and more than 6 filler words;
   - Cyrillic letters outside the folded set and Greek lookalikes;
+  - a literal `[REDACTED]` typed inside a secret
+    (`password: x9d8Jt12[REDACTED]rPuFQf34`): the piece after it is not
+    labelled and is stored (fourth review; xfail);
+  - since the fourth review, these are ordinary and not scrubbed from
+    other turns when repeated bare: lower-case hyphenated passphrases
+    (`correct-horse-battery`), CamelCase secrets made of word-like parts
+    (`BlueHorseLamp`), dotted lower-case words, and 8-digit numbers that
+    are valid dates; a value that starts with a flag word and goes on in
+    plain words ("password: false alarm") is not masked at all;
+  - `test_working_redaction.py::test_the_refusal_rule_uses_the_stronger_check`
+    is a strict xfail since the fourth review: it simulates a missed mask
+    by patching `quality.mask_credentials`, which the working layer no
+    longer calls directly (it filters flag values first). The guarantee is
+    unchanged and is tested by patching the new function instead
+    (`test_working_redaction_review4.py::test_refusal_rule_still_uses_the_stronger_check`);
   - the stage 15 one-case single-`=` base64 gap, and every other gap in
     [Known gaps](#known-gaps).
 
   Recall cost: within a turn, a label, a connector and a value are masked
-  even when harmless ("auth = False", `sorted(xs, key=len)`, "foreign key
-  constraints = on"), as in extraction. That masking no longer spreads to
-  other turns: since the third review only secret-shaped values are scrubbed
-  across turns, so "False", "on", "len", "8080" or "private" elsewhere in
-  the note are kept. Sessions with fewer than 2 typed
+  even when harmless (`sorted(xs, key=len)`, "auth = read-only", "the key
+  is port 8080"), as in extraction; flag values ("auth = False", "foreign
+  key constraints = on") are kept. That masking does not spread to other
+  turns: only secret-shaped values are scrubbed across turns, so "len",
+  "8080", "read-only" or "private" elsewhere in the note are kept. Sessions with fewer than 2 typed
   messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock

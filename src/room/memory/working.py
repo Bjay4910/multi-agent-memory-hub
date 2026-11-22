@@ -123,15 +123,46 @@ def _masked(text: str) -> str:
     """The strong mask on the raw text, then redact_secrets (so redact.py never half-masks a token first).
     redact_secrets runs on each piece between [REDACTED] markers: run over a marker it reads
     "api_key=[REDACTED]&page=2" as one value and swallows "&page=2"; a masked value cannot span a marker."""
-    masked = quality.mask_credentials(text)
+    masked = _mask_credentials(text)
     return REPLACEMENT.join(redact_secrets(piece) for piece in masked.split(REPLACEMENT))
+
+
+_FLAGS = frozenset({"on", "off", "true", "false", "yes", "no", "none", "null", "nil", "enabled", "disabled"})
+
+
+def _is_flag(value: str) -> bool:
+    """A setting, not a secret: the extraction filter's value starts with a flag word and nothing after it is
+    secret-shaped ("foreign_keys = ON at connection setup", "password: false done")."""
+    words = value.split()
+    return bool(words) and words[0].strip(_EDGE).lower() in _FLAGS and not any(_secret_shaped(w) for w in words[1:])
+
+
+def _credential_spans(text: str) -> list[tuple[int, int]]:
+    """quality.credential_spans, minus values that are flags (see _is_flag); overlapping spans merged."""
+    merged: list[tuple[int, int]] = []
+    for s, e, value, _kind in quality._credential_matches(text):
+        if _is_flag(value):
+            continue
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(e, merged[-1][1]))
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def _mask_credentials(text: str) -> str:
+    out, last = [], 0
+    for s, e in _credential_spans(text):
+        out += [text[last:s], REPLACEMENT]
+        last = e
+    return "".join(out) + text[last:]
 
 
 def _regions(text: str) -> set[str]:
     """The pieces of ``text`` this pipeline masks: the extraction filter's spans (code blocks included), and
     what redact_secrets masks between them."""
-    regions = {text[s:e] for s, e in quality.credential_spans(text)}
-    for piece in quality.mask_credentials(text).split(REPLACEMENT):
+    regions = {text[s:e] for s, e in _credential_spans(text)}
+    for piece in _mask_credentials(text).split(REPLACEMENT):
         regions |= quality.redact_masked_substrings(piece)
     return {r for r in regions if r and r != REPLACEMENT}
 
@@ -140,20 +171,64 @@ _EDGE = ".,;:!?()[]{}<>'\"`"
 
 
 def _secret_shaped(value: str) -> bool:
-    """Whether a masked value is scrubbed from the note's other turns: a token or key form (quality's token
-    shapes, or a redact.py pattern such as sk-, ghp_, AKIA, a JWT or a PEM block), or 8+ characters with a
-    digit, a symbol (not "_"), or an upper-case letter after the first one and a lower-case letter in one word.
-    Never plain words or phrases, numbers under 8 digits, or values of 7 or fewer characters."""
-    v = value.strip()
+    """Whether a masked value is scrubbed from the note's other turns. Judged on the normalized value (NFKC,
+    zero-width characters removed, Cyrillic lookalikes read as Latin), so "qvwr\u0410mzkp" is read as "qvwrAmzkp".
+
+    - a token or key form always counts (quality's token shapes, or a redact.py pattern: sk-, ghp_, AKIA, a JWT,
+      a PEM block), even with spaces in it;
+    - otherwise one word (no whitespace) of 8+ characters that is not ordinary (see _ordinary), and that has a
+      letter with a digit or a symbol (not "_"), or is 8+ digits, or has letters and digits or symbols only,
+      or mixes upper and lower case without being a plain CamelCase identifier, or had a Cyrillic lookalike or
+      zero-width character inside Latin letters (written to hide it).
+    Never phrases, plain words, numbers under 8 digits, or values of 7 or fewer characters."""
+    v = quality._normalized(value)[0].strip()
     if len(v) <= 7:
         return False
     if quality._TOKEN_SHAPES.fullmatch(v) or find_secrets(v):
         return True
-    if v.isdigit():
-        return True  # 8+ digits
-    if re.search(r"\d", v) or re.search(r"[^\w\s]", v):
+    if re.search(r"\s", v) or _ordinary(v):
+        return False
+    if re.search(r"\d", v) or re.search(r"[^\w]", v):
+        return True  # letters with digits or symbols, 8+ digits, or digits with symbols (dates, IPs and versions excluded)
+    if value.strip() != v and re.search(r"[A-Za-z]", v):
+        return True  # a lookalike or zero-width character hidden in a Latin word
+    return bool(re.search(r"[A-Z]", v[1:])) and bool(re.search(r"[a-z]", v)) and not _identifier(v)
+
+
+_DATE = re.compile(r"(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})")
+_ORDINARY = re.compile(
+    r"v?\d+(?:\.\d+){1,3}(?:-[0-9a-z.]+)?(?:\+[0-9a-z.]+)?"  # versions (2.4.1-beta) and IPv4 addresses
+    r"|(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?"  # 127.0.0.1:5432
+    r"|[a-z0-9][a-z0-9.-]*:\d{1,5}"  # localhost:8080, db.internal:5432
+    r"|https?://[^\s@:/]+(?::\d{1,5})?(?:/[^\s@]*)?"  # a URL without a user:password part
+    r"|[a-z]+(?:-[a-z]+)+"  # lowercase hyphenated words: read-only, not-found, non-empty
+    r"|[A-Za-z]+'[A-Za-z]{1,2}"  # contractions: shouldn't, wouldn't
+    r"|[A-Za-z][a-z]*(?:/[A-Za-z][a-z]*)+|[A-Z]+(?:/[A-Z]+)+")  # words joined by "/": True/False, input/output
+
+
+def _ordinary(v: str) -> bool:
+    """A date, version, IP, host:port, plain URL, hyphenated lowercase words, a contraction, slash-joined words, or
+    a dotted code expression (str.lower, os.path.join) whose parts are plain words or identifiers."""
+    m = _DATE.fullmatch(v)
+    if m:
+        try:
+            datetime(int(m[1]), int(m[2]), int(m[3]))
+            return True
+        except ValueError:
+            pass
+    if _ORDINARY.fullmatch(v):
         return True
-    return " " not in v and bool(re.search(r"[A-Z]", v[1:])) and bool(re.search(r"[a-z]", v))
+    parts = v.removesuffix("()").split(".")
+    return len(parts) > 1 and all(re.fullmatch(r"[a-z_]+|[A-Z_]+", p) or _identifier(p) for p in parts)
+
+
+def _identifier(v: str) -> bool:
+    """A plain camelCase or PascalCase identifier made of word-like parts (KeyError, defaultValue, isEnabled):
+    each part 2+ letters with a vowel and no run of 5 consonants. "qvwrAmzkp" and "kAmezovqr" are not."""
+    if not re.fullmatch(r"[a-z]+(?:[A-Z][a-z]+)+|(?:[A-Z][a-z]+)+", v):
+        return False
+    return all(len(p) >= 2 and re.search(r"[aeiouy]", p) and not re.search(r"[^aeiouy]{5}", p)
+               for p in (s.lower() for s in re.findall(r"[A-Z]?[a-z]+", v)))
 
 
 def _withheld(text: str) -> set[str]:
@@ -227,10 +302,23 @@ def _still_secret(text: str) -> bool:
     filter's (stronger) one."""
     # "Authorization: Bearer [REDACTED]" is masked already; the extraction pattern would read "Bearer" as the value.
     text = _SCHEME_THEN_MARKER.sub(REPLACEMENT, text)
-    return any(find_secrets(piece) for piece in text.split(REPLACEMENT)) or quality.has_credential(text)
+    # the cut notice is this module's own text, not the user's: dropped, so "token: " before it is a label whose
+    # value was cut away, not a label with the value "[... 12 characters cut]"
+    text = _CUT_NOTICE.sub("", text)
+    return any(find_secrets(piece) for piece in text.split(REPLACEMENT)) or bool(_credential_spans(text))
 
 
 _SCHEME_THEN_MARKER = re.compile(r"(?i)\b(?:bearer|basic|token)\s+" + re.escape(REPLACEMENT))
+_CUT_NOTICE = re.compile(r"\n\[\.\.\. [\d,]+ characters cut\]")
+
+
+def _cut(text: str, limit: int) -> int:
+    """Where to cut ``text`` to at most ``limit`` characters: before a [REDACTED] marker the limit falls inside,
+    so a stored note never holds a partial marker ("[REDACTE")."""
+    for m in _MARKER.finditer(text, max(0, limit - len(REPLACEMENT))):
+        if m.start() < limit < m.end():
+            return m.start()
+    return limit
 
 
 def _raw(item: dict) -> str:
@@ -247,8 +335,9 @@ def _clean_turn(turn: dict, withheld: "set[str] | frozenset[str]" = frozenset())
     text = _scrub(_masked(_raw(turn).strip()), withheld)
     limit = turn.get("cut")
     if isinstance(limit, int) and len(text) > limit:
-        text = text[:limit] + f"\n[... {len(text) - limit:,} characters cut]"
-    text = text[:MAX_NOTE_CHARS]
+        at = _cut(text, limit)
+        text = text[:at] + f"\n[... {len(text) - at:,} characters cut]"
+    text = text[:_cut(text, MAX_NOTE_CHARS)]
     if not text:
         return None
     out = {"role": role, "ts": str(turn.get("ts") or "")[:40], "text": text}
@@ -275,7 +364,8 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
                          if n.get("source") == source and n.get("source_key") == key_hash), None)
         live = existing is not None and not _expired(existing, now)
         seen = set(existing.get("turn_keys", [])) if existing else set()
-        new_items = [i for i in items if isinstance(i, dict) and i.get("key") and _hash(str(i["key"])) not in seen]
+        new_items = [i for i in items if isinstance(i, dict) and i.get("key") and i.get("role") != "draft"
+                     and _hash(str(i["key"])) not in seen]
         valid = [i for i in items if isinstance(i, dict) and i.get("role") in ("user", "assistant")
                  and isinstance(i.get("text"), str)]
         new_valid = [i for i in valid if i.get("key") and _hash(str(i["key"])) not in seen]
@@ -284,9 +374,9 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
         # re-reads the whole transcript, so a resumed session or a later Stop hook still sees the first turns,
         # unmasked, in memory only), replies a later reply replaced ("draft" items), the turns already stored,
         # and the raw project folder name. They are scrubbed from every turn and the project name.
-        drafts = [i["raw"] for i in items if isinstance(i, dict) and i.get("role") == "draft" and isinstance(i.get("raw"), str)]
+        drafts = [i for i in items if isinstance(i, dict) and i.get("role") == "draft" and isinstance(i.get("raw"), str)]
         withheld: set[str] = set()
-        for text in [_raw(i) for i in valid] + drafts + [t["text"] for t in old_turns] + [project]:
+        for text in [_raw(i) for i in valid] + [d["raw"] for d in drafts] + [t["text"] for t in old_turns] + [project]:
             withheld |= _withheld(text)
         raw = [_raw(i) for i in new_valid]
         new_turns = [t for t in (_clean_turn(i, withheld) for i in new_valid) if t]
@@ -294,8 +384,10 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
             return "unchanged", existing if live else None
         # The stored turns are rebuilt from their raw text when the capture passed it again (so a secret that
         # straddled the 2,000-character cut and is labelled only now is masked whole before the cut), otherwise
-        # masked again in full (a note written by older code gets the strong mask too).
-        raw_by_key = {_hash(str(i["key"])): i for i in valid if i.get("key")}
+        # masked again in full (a note written by older code gets the strong mask too). A stored Antigravity reply
+        # that a later reply of the same turn replaced comes back as a "draft" with its key and raw text.
+        raw_by_key = {_hash(str(d["key"])): {**d, "role": "assistant", "text": d["raw"]} for d in drafts if d.get("key")}
+        raw_by_key |= {_hash(str(i["key"])): i for i in valid if i.get("key")}
         rebuilt = []
         for t in old_turns:
             again = _clean_turn(raw_by_key[t["key"]], withheld) if t.get("key") in raw_by_key else None

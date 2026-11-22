@@ -210,6 +210,7 @@ def test_project_tag_is_masked_in_the_note_and_the_capture_log(tmp_path, monkeyp
     assert "swordfish" not in env.all_bytes()
 
 
+@pytest.mark.xfail(strict=True, reason="review 4: working.py masks through its own _mask_credentials (flag values such as ON are kept), so patching quality.mask_credentials no longer simulates a miss; the same guarantee is tested in test_working_redaction_review4.py::test_refusal_rule_still_uses_the_stronger_check")
 def test_the_refusal_rule_uses_the_stronger_check(tmp_path, monkeypatch):
     """If masking ever misses a credential the extraction filter still sees, nothing is written."""
     from room.memory import quality
