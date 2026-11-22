@@ -12,7 +12,10 @@ older copy as ``superseded``.
 
 from __future__ import annotations
 
+import copy
+import re
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..memory.store import MemoryStore, Provenance
@@ -303,14 +306,50 @@ SESSIONS: list[tuple[str, str, str, dict]] = [
 ]
 
 
-def load_rich_demo(home: Path | None = None) -> MemoryStore:
-    """Create (or recreate) the rich demo database in ``home`` (default: a new temp dir)."""
+_TS = "%Y-%m-%dT%H:%M:%SZ"
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+           "November", "December")
+_DAY_MONTH = re.compile(rf"\b(\d{{1,2}}) ({'|'.join(_MONTHS)})\b")
+
+
+def _parse(ts: str) -> datetime:
+    return datetime.strptime(ts, _TS).replace(tzinfo=timezone.utc)
+
+
+def _shift_text(text: str, offset: timedelta) -> str:
+    """Move "4 August"-style dates by ``offset`` (the story runs from August 2026 to January 2027)."""
+    def move(m: re.Match) -> str:
+        month = _MONTHS.index(m.group(2)) + 1
+        when = datetime(2027 if month == 1 else 2026, month, int(m.group(1))) + offset
+        return f"{when.day} {_MONTHS[when.month - 1]}"
+    return _DAY_MONTH.sub(move, text)
+
+
+def date_offset(now: datetime | None = None) -> timedelta:
+    """The whole-second offset that puts the newest session two days before ``now``."""
+    now = now or datetime.now(timezone.utc)
+    newest = max(_parse(ts) for _, _, ts, _ in SESSIONS)
+    return timedelta(seconds=round(((now - timedelta(days=2)) - newest).total_seconds()))
+
+
+def load_rich_demo(home: Path | None = None, relative_dates: bool = False, now: datetime | None = None) -> MemoryStore:
+    """Create (or recreate) the rich demo database in ``home`` (default: a new temp dir).
+
+    ``relative_dates`` moves every timestamp (and every date written in a summary) by one constant offset, so
+    the newest session was two days before ``now`` (default: the current time) and the span stays the same.
+    Session ids are unchanged. Without it, the fixed Aug-Oct 2026 timestamps are used exactly."""
     home = Path(home) if home else Path(tempfile.mkdtemp(prefix="agent-room-rich-demo-"))
     db = home / "memory.db"
     for suffix in ("", "-wal", "-shm"):
         Path(f"{db}{suffix}").unlink(missing_ok=True)
     store = MemoryStore(db)
     store.set_meta("demo", "1")
+    offset = date_offset(now) if relative_dates else None
     for session_id, agent, ts, data in SESSIONS:
+        if offset is not None:
+            ts = (_parse(ts) + offset).strftime(_TS)
+            data = copy.deepcopy(data)
+            for node in data["nodes"]:
+                node["summary"] = _shift_text(node["summary"], offset)
         store.apply_extraction(data, Provenance(session_id, agent, "session"), ts=ts)
     return store

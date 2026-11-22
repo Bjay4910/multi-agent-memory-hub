@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useCountUp } from "../useCountUp";
+import { useReducedMotion } from "../useReducedMotion";
 
 interface Values {
   memories: number | null;
@@ -15,7 +17,14 @@ const LABELS: [keyof Values, string][] = [
   ["memories", "Memories"], ["connections", "Connections"], ["agents", "Agents working now"], ["sessions", "Sessions"],
 ];
 
-export function Counters() {
+function CounterValue({ value, animate }: { value: number | null; animate: boolean }) {
+  const shown = useCountUp(value, animate);
+  return <span className="counter-value">{shown === null ? "—" : String(shown)}</span>;
+}
+
+/** ``animate`` (opt-in; Home uses it): count up to each number on arrival, unless reduced motion is set. */
+export function Counters({ animate = false }: { animate?: boolean }) {
+  const reduced = useReducedMotion();
   const [values, setValues] = useState<Values>(EMPTY);
   const [loaded, setLoaded] = useState(false);
 
@@ -41,7 +50,7 @@ export function Counters() {
     <section className="counters glass" aria-label="Live counts from this machine's memory" aria-busy={!loaded}>
       {LABELS.map(([key, label]) => (
         <div key={key} className="counter" data-counter={key}>
-          <span className="counter-value">{values[key] === null ? "—" : String(values[key])}</span>
+          <CounterValue value={values[key]} animate={animate && !reduced} />
           <span className="counter-label">{label}</span>
         </div>
       ))}

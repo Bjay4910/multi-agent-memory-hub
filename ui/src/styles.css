@@ -391,7 +391,8 @@ nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none;
 .explorer-table tbody tr { cursor: pointer; transition: background 140ms var(--ease); }
 .explorer-table tbody tr:hover, .explorer-table tbody tr.active { background: rgba(99, 102, 241, 0.12); }
 .explorer-table tr.dimmed td { opacity: 0.55; }
-.cell-name { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
+.cell-name { min-width: 220px; }
+.cell-name .name-wrap { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
 .cell-type { text-transform: capitalize; color: var(--ink-soft); }
 .cell-conf { white-space: nowrap; }
 .conf-bar { display: inline-block; width: 64px; height: 6px; border-radius: 999px; background: rgba(148, 163, 255, 0.15); vertical-align: middle; margin-right: 8px; overflow: hidden; }
@@ -403,7 +404,9 @@ nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none;
 .pager { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 14px; }
 .pager .button { margin: 0; padding: 7px 14px; }
 .pager .button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-.drawer { position: fixed; top: 64px; right: 0; bottom: 0; width: min(440px, 100vw); z-index: 20; display: flex; flex-direction: column; padding: 16px; gap: 12px; animation: slide-in 260ms var(--ease); }
+.app { --chrome-height: 64px; }
+.app.with-banner { --chrome-height: 105px; }
+.drawer { position: fixed; top: var(--chrome-height); right: 0; bottom: 0; width: min(440px, 100vw); z-index: 20; display: flex; flex-direction: column; padding: 16px; gap: 12px; animation: slide-in 260ms var(--ease); }
 .drawer .panel { position: static; flex: 1; width: auto; }
 .open-in-graph { align-self: stretch; text-align: center; margin: 0; }
 
@@ -434,3 +437,34 @@ code.example { display: block; padding: 9px 12px; border-radius: 10px; backgroun
 .gap-item p { margin: 0; color: var(--ink-soft); overflow-wrap: anywhere; }
 .gap-item ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-soft); display: grid; gap: 4px; }
 .verified { margin: 12px 0; padding: 18px 22px; font-size: 16px; border-left: 3px solid var(--cyan); }
+
+/* -- demo banner ---------------------------------------------------------------------------------------------- */
+.demo-banner {
+  display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0; padding: 9px 28px;
+  font-size: 13.5px; color: #fde68a; text-align: center; z-index: 9;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.06), rgba(251, 191, 36, 0.14), rgba(251, 191, 36, 0.06));
+  border-bottom: 1px solid rgba(251, 191, 36, 0.28);
+}
+.demo-banner code { color: #fef3c7; background: rgba(251, 191, 36, 0.12); padding: 1px 6px; border-radius: 6px; }
+.demo-banner-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #fbbf24; box-shadow: 0 0 10px rgba(251, 191, 36, 0.8); }
+
+/* -- explorer polish ------------------------------------------------------------------------------------------ */
+.table-wrap { overflow: visible; max-height: none; }
+.explorer-table thead th:first-child { border-top-left-radius: var(--radius); }
+.explorer-table thead th:last-child { border-top-right-radius: var(--radius); }
+.explorer-table .th-label {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 12px 16px; border: 0; background: transparent;
+  font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint);
+}
+.explorer-table button.th-label { cursor: pointer; }
+.explorer-table button.th-label:hover { color: var(--ink); }
+.explorer-table thead th:last-child { display: table-cell; padding: 0; cursor: default; background: #0e1022; border-bottom: 1px solid var(--line-strong); }
+.cell-date { white-space: nowrap; }
+.drawer { width: min(420px, 100vw); padding: 16px 16px 0; gap: 0; }
+.drawer-body { flex: 1; min-height: 0; display: flex; }
+.drawer-body .panel { position: static; flex: 1; width: auto; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.drawer-footer { padding: 12px 16px 16px; background: var(--glass-strong); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius) var(--radius); margin-bottom: 16px; backdrop-filter: blur(16px); }
+.drawer-footer .open-in-graph { display: block; width: 100%; margin: 0; text-align: center; }
+.explorer-page.drawer-side { padding-right: 460px; transition: padding-right 260ms var(--ease); }
+.explorer-page.drawer-side > * { max-width: none; }
+.explorer-page.drawer-overlay .drawer { box-shadow: -20px 0 60px rgba(0, 0, 0, 0.55); }

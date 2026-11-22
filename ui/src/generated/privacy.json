@@ -1457,10 +1457,10 @@
     }
   ],
   "testCounts": {
-    "line": "The suite has 1,217 tests (counted with pytest --collect-only; 1,181 pass and 36 are expected failures)",
-    "testsText": "1,217",
-    "tests": 1217,
-    "passed": 1181,
+    "line": "The suite has 1,380 tests (counted with pytest --collect-only; 1,344 pass and 36 are expected failures)",
+    "testsText": "1,380",
+    "tests": 1380,
+    "passed": 1344,
     "xfailed": 36
   }
 }

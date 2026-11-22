@@ -600,48 +600,57 @@ Keyword search has no notion of meaning; see the limits below.
 
 ### Dashboard (local)
 
-A read-only web dashboard for memory, served only on your machine. It has two
-parts: `room dashboard-api` (a small JSON API on `127.0.0.1:8766`, read-only,
-GET only) and the page in `ui/` (Vite + React + three.js, everything bundled;
-it makes no requests to other hosts). Built so far: Home, Memory Graph, The
-Room (who is working, from presence) and Timeline (sessions by day); Explorer
-and Privacy are placeholders. With `--demo`, The Room shows a fixed sample of
-presence (marked as such), because the demo home has no real agents.
+A read-only web dashboard for memory that runs only on your machine. It has
+two parts: `room dashboard-api`, a small JSON API, and the page in `ui/`
+(Vite, React and three.js, with everything bundled, so the page requests
+nothing from other hosts). Six pages:
 
-With made-up demo data (nothing from your real memory is read). `--demo`
-serves a richer fictional set of about 120 facts over three months;
-`--demo --demo-set small` serves the small set from `room memory demo`:
+- **Home**: what the room is, with live counts of memories, connections,
+  agents working now and sessions, read from the API.
+- **Memory Graph**: a 3D view of the graph, with search, type filters and a
+  panel for each node (its summary, links and where it came from).
+- **The Room**: one card per agent, with presence (working, idle, offline)
+  and what each agent contributed.
+- **Timeline**: sessions grouped by day; open one to see the memories it
+  added and jump to them in the graph.
+- **Explorer**: every node in a sortable, filterable, paged table with a
+  detail drawer.
+- **Privacy**: what the secret filter handles and what it does not, generated
+  from `docs/MEMORY.md` when the page is built (`npm run privacy`), so it
+  cannot drift from the docs.
+
+**Demo or your own memory.** `room dashboard-api --demo` serves a fictional
+sample set (about 120 made-up facts over three months, dated so the newest
+session was two days ago) from a temporary folder, and never reads your real
+memory. Every page then shows a banner saying the data is fictional, and The
+Room shows a fixed sample of presence. `room dashboard-api` without `--demo`
+serves your own memory (`~/.agent-room/memory.db`, or `$AGENT_ROOM_HOME`).
+
+**Read-only, by design.** The API listens on `127.0.0.1` only and refuses any
+other address, answers GET and HEAD only (anything else gets 405), opens the
+database with SQLite `mode=ro`, rejects requests whose Host header is not
+localhost (a guard against DNS rebinding), and sends no CORS headers. The
+page carries a strict Content-Security-Policy that allows its own origin
+only. The API refuses to start if something already answers on its port on
+`127.0.0.1` (it does not check other interfaces).
+
+Run it:
 
 ```bash
-room dashboard-api --demo
+room dashboard-api --demo        # or: room dashboard-api  (your own memory)
 # in a second terminal:
 cd ui && npm install && npm run dev
 # open http://127.0.0.1:5173/
 ```
 
-With your local memory (`~/.agent-room/memory.db`, or `$AGENT_ROOM_HOME`):
-
-```bash
-room dashboard-api
-# in a second terminal:
-cd ui && npm run dev
-```
-
-The dev server listens on `127.0.0.1:5173` and forwards `/api` to
-`127.0.0.1:8766`. `room dashboard-api` refuses to start if something already
-answers on its port on `127.0.0.1` (pick another with `--port`, and change
-the proxy target in `ui/vite.config.ts` to match); it only checks
-`127.0.0.1`, so other processes may still listen on the same port on other
-interfaces. `cd ui && npm test` runs the UI tests, `npm run build` builds
-`ui/dist/`, and `npm run check:dist` lists every external URL string in the
-build (all are known library constants, never requested).
-
-Dashboard note (stage F5): Explorer and Privacy are now built too (the
-sentence above about placeholders is out of date). Explorer lists every node
-in a sortable, filterable table. The Privacy page is generated from
-`docs/MEMORY.md` by `cd ui && npm run privacy` (also run before every
-build); `npm run check:privacy` fails if the committed copy differs from the
-docs, and `npm run check:glow` re-measures the graph glow on screenshots.
+The dev server listens on `127.0.0.1:5173` and forwards `/api` to the API on
+`127.0.0.1:8766` (pick another API port with `--port` and change the proxy
+target in `ui/vite.config.ts` to match). In `ui/`: `npm test` runs the UI
+tests, `npm run build` builds `ui/dist/`, `npm run check:dist` lists every
+external URL string in the build (all are known library constants or the
+docs' fake examples, never requested), `npm run check:privacy` fails if the
+generated Privacy data no longer matches the docs, and `npm run check:glow`
+re-measures the graph's glow on its screenshots.
 
 ### Presence
 
@@ -687,7 +696,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 1,217 tests (counted with `pytest --collect-only`; 1,181 pass and 36 are expected failures, `xfail`, marking known gaps: 3 earlier ones and 33 strict ones for the stage 15 single-`=` base64 gap). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 1,380 tests (counted with `pytest --collect-only`; 1,344 pass and 36 are expected failures, `xfail`, marking known gaps: 3 earlier ones and 33 strict ones for the stage 15 single-`=` base64 gap). Four of them are secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), so the suite takes about five to six minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

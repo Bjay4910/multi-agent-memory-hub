@@ -335,6 +335,22 @@ def _host_ok(header: str | None, port: int) -> bool:
     return False
 
 
+# A browser that closes a tab mid-response is normal, not an error worth a traceback.
+_HANG_UPS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
+class QuietServer(ThreadingHTTPServer):
+    """Like ThreadingHTTPServer, but a client hanging up early prints nothing. Every other error is reported
+    exactly as before (socketserver's handle_error prints the traceback)."""
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):  # noqa: D102
+        if isinstance(sys.exc_info()[1], _HANG_UPS):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "room-dashboard-api"
     sys_version = ""
@@ -345,6 +361,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, status: int, payload: dict, extra: dict[str, str] | None = None, body: bool = True) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        try:
+            self._write(status, data, extra, body)
+        except _HANG_UPS:
+            self.close_connection = True  # the client left; nothing to report
+
+    def _write(self, status: int, data: bytes, extra: dict[str, str] | None, body: bool) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -421,7 +443,8 @@ DEMO_SETS = ("small", "rich")
 
 
 def make_server(host: str, port: int, *, db_path: Path | None = None, presence_dir: Path | None = None,
-                mode: str = "local", demo_set: str = "small", demo_presence: bool = False) -> ThreadingHTTPServer:
+                mode: str = "local", demo_set: str = "small", demo_presence: bool = False,
+                relative_dates: bool = False) -> ThreadingHTTPServer:
     """A server bound to 127.0.0.1 (any other ``host`` is refused); ``port`` 0 picks a free one.
 
     In demo mode without a ``db_path``, a new temp home is built with ``demo_set`` ("small", the default, or
@@ -439,33 +462,36 @@ def make_server(host: str, port: int, *, db_path: Path | None = None, presence_d
             raise ValueError("db_path is required outside demo mode")
         if port and _answers(port):  # before a demo home is created
             raise PortInUse(port)
-        home = demo_home(demo_set)
+        home = demo_home(demo_set, relative_dates=relative_dates)
         db_path, presence_dir = home / "memory.db", home / "presence"
     if presence_dir is None:
         presence_dir = Path(db_path).parent / "presence"
     if port and _answers(port):
         raise PortInUse(port)
     try:
-        server = ThreadingHTTPServer((BIND_HOST, port), Handler)
+        server = QuietServer((BIND_HOST, port), Handler)
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
             raise PortInUse(port) from None
         raise
-    server.daemon_threads = True
     config = Config(Path(db_path), Path(presence_dir), mode, server.server_address[1], demo_presence)
     server.RequestHandlerClass = type("BoundHandler", (Handler,), {"config": config})
     return server
 
 
-def demo_home(demo_set: str = "small") -> Path:
-    """A new temp home holding a made-up demo dataset: "small" (room.memory.demo) or "rich" (demo_data)."""
+def demo_home(demo_set: str = "small", relative_dates: bool = False) -> Path:
+    """A new temp home holding a made-up demo dataset: "small" (room.memory.demo) or "rich" (demo_data).
+    ``relative_dates`` (rich set only) moves the rich set's dates so its newest session was two days ago."""
     from ..memory.demo import load_demo
     from .demo_data import load_rich_demo
 
     if demo_set not in DEMO_SETS:
         raise ValueError(f"unknown demo set {demo_set!r}")
     home = Path(tempfile.mkdtemp(prefix="agent-room-dashboard-demo-"))
-    (load_rich_demo if demo_set == "rich" else load_demo)(home).close()
+    if demo_set == "rich":
+        load_rich_demo(home, relative_dates=relative_dates).close()
+    else:
+        load_demo(home).close()
     return home
 
 
@@ -476,7 +502,7 @@ def serve(port: int = DEFAULT_PORT, demo: bool = False, host: str = BIND_HOST, d
     if port and _answers(port):  # before a demo home is created
         raise PortInUse(port)
     if demo:
-        home = demo_home(demo_set)
+        home = demo_home(demo_set, relative_dates=True)  # current-looking dates for the live demo
         os.environ["AGENT_ROOM_HOME"] = str(home)  # anything that asks for the home gets the temp one
         db_path, presence_dir, mode = home / "memory.db", home / "presence", "demo"
     else:

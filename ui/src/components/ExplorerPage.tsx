@@ -16,6 +16,11 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 ];
 type Load = { state: "loading" } | { state: "ready" } | { state: "error"; message: string };
 
+/** Where the detail drawer goes: beside the table on wide screens, over it on narrow ones. */
+export function drawerLayout(width: number): "side" | "overlay" {
+  return width >= 1100 ? "side" : "overlay";
+}
+
 function day(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
@@ -31,6 +36,12 @@ export function ExplorerPage() {
   const [active, setActive] = useState(-1);
   const [drawer, setDrawer] = useState<{ id: number; detail: NodeDetail | null; error: string | null } | null>(null);
   const body = useRef<HTMLTableSectionElement>(null);
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -81,7 +92,7 @@ export function ExplorerPage() {
 
   const pages = pageCount(total);
   return (
-    <div className="page explorer-page">
+    <div className={`page explorer-page${drawer ? ` drawer-${drawerLayout(width)}` : ""}`}>
       <header className="page-head">
         <p className="eyebrow">Explorer</p>
         <h1>Every memory, in a table</h1>
@@ -119,20 +130,20 @@ export function ExplorerPage() {
                 {COLUMNS.map((c) => (
                   <th key={c.key} scope="col"
                       aria-sort={state.sort === c.key ? (state.order === "asc" ? "ascending" : "descending") : "none"}>
-                    <button type="button" data-sort={c.key} onClick={() => setState(toggleSort(state, c.key))}>
+                    <button type="button" className="th-label" data-sort={c.key} onClick={() => setState(toggleSort(state, c.key))}>
                       {c.label}
                       <span className="sort-mark" aria-hidden="true">{state.sort === c.key ? (state.order === "asc" ? "↑" : "↓") : ""}</span>
                     </button>
                   </th>
                 ))}
-                <th scope="col">Status</th>
+                <th scope="col"><span className="th-label">Status</span></th>
               </tr>
             </thead>
             <tbody ref={body} tabIndex={0} onKeyDown={onTableKey} aria-label="Nodes; arrow keys move, Enter opens">
               {rows.map((r, i) => (
                 <tr key={r.id} aria-selected={i === active} className={[r.status === "superseded" ? "dimmed" : "", i === active ? "active" : ""].join(" ").trim() || undefined}
                     onClick={() => { setActive(i); open(r.id); }}>
-                  <td className="cell-name"><span className="dot" style={{ background: colorForType(r.type) }} />{r.name}</td>
+                  <td className="cell-name"><span className="name-wrap"><span className="dot" style={{ background: colorForType(r.type) }} />{r.name}</span></td>
                   <td className="cell-type">{r.type}</td>
                   <td className="cell-conf">
                     <span className="conf-bar" aria-hidden="true"><span style={{ width: `${Math.round(r.confidence * 100)}%` }} /></span>
@@ -156,15 +167,19 @@ export function ExplorerPage() {
 
       {drawer && (
         <div className="drawer" role="dialog" aria-label="Node details">
-          {drawer.detail ? (
-            <>
+          <div className="drawer-body">
+            {drawer.detail ? (
               <NodePanel node={drawer.detail} onSelect={(id) => open(id)} onClose={() => setDrawer(null)} />
+            ) : (
+              <aside className="panel glass">
+                {drawer.error ? <p>{drawer.error}</p> : <div className="center-state"><div className="spinner" />Loading…</div>}
+              </aside>
+            )}
+          </div>
+          {drawer.detail && (
+            <footer className="drawer-footer">
               <a className="open-in-graph button" href={`#/graph?node=${drawer.detail.id}`}>Open in graph</a>
-            </>
-          ) : (
-            <aside className="panel glass">
-              {drawer.error ? <p>{drawer.error}</p> : <div className="center-state"><div className="spinner" />Loading…</div>}
-            </aside>
+            </footer>
           )}
         </div>
       )}

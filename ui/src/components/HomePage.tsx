@@ -32,7 +32,7 @@ export function HomePage({ mode }: { mode: Mode }) {
       </section>
 
       <div className="home-body">
-        <Counters />
+        <Counters animate />
         <section className="how" aria-label="How it works">
           {STEPS.map((s) => (
             <article key={s.title} className="how-card glass">

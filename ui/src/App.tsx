@@ -57,7 +57,7 @@ export function App() {
 
   const label = ROUTES.find((r) => r.path === route)!.label;
   return (
-    <div className="app">
+    <div className={mode.kind === "demo" ? "app with-banner" : "app"}>
       <div className="backdrop" aria-hidden="true" />
       <header className="topbar">
         <a className="brand" href="#/"><span className="brand-mark" aria-hidden="true" />Agent Room</a>
@@ -74,6 +74,13 @@ export function App() {
         )}
         <ModeBadge mode={mode} />
       </header>
+      {mode.kind === "demo" && (
+        <p className="demo-banner" role="note">
+          <span className="demo-banner-dot" aria-hidden="true" />
+          Fictional sample data. Every name, project and number here is invented for this demo. Run{" "}
+          <code>room dashboard-api</code> without <code>--demo</code> to see your own memory.
+        </p>
+      )}
       <main className="main">
         {route === "" ? <HomePage mode={mode} /> : route === "graph" ? (
           <Suspense fallback={<div className="center-state"><div className="spinner" />Loading the graph…</div>}>
