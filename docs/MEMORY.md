@@ -941,11 +941,19 @@ Raw and temporary, unlike the curated graph above.
     `pin`, `otp`, `2fa code`, `recovery code`, `session cookie`, `cookie`,
     `psk`, `secret code`, `seed phrase`, `auth header`, `credentials`,
     `mot de passe`, `contraseña`, `passwort`, `密码`, `パスワード`, `jwt`,
-    `totp`, `hmac`, `license key` (a space may also be `_` or `-`). Also
-    strong: an upper-case variable name (`GITHUB_TOKEN`, `DB_PASSWORD`,
-    `DB_SECRET`); a lower-case snake_case name when it ends in `_password`,
-    `_passwd`, `_cookie` or `_pin`, whatever comes before (`db_password`,
-    `admin_passwd`, `session_cookie`, `card_pin`), or when it ends in
+    `totp`, `hmac`, `license key`. In the multi-word labels a space may
+    also be `_` or `-`, in any case, and a name that ends in one is that
+    label (`license_key`, `license-key`, `2fa_code`, `mot_de_passe`,
+    `Recovery_Code`, `my_license_key`), with the same noun and flag rules
+    as the spaced label ("license_key field: x" is read as a label
+    followed by a noun). Also strong: an upper-case variable name
+    (`GITHUB_TOKEN`, `DB_PASSWORD`, `DB_SECRET`); a lower-case snake_case
+    name when it ends in `_password`, `_passwd`, `_passphrase`,
+    `_passcode`, `_pwd`, `_pw`, `_cookie`, `_pin`, `_otp`, `_totp`, `_pat`,
+    `_psk`, `_hmac`, `_jwt` or `_credentials`, whatever comes before
+    (`db_password`, `admin_pw`, `login_otp`, `github_pat`, `wifi_psk`,
+    `api_credentials`); this suffix rule does not apply the noun rule
+    ("db_password field is hidden" is masked); or when it ends in
     `_key`, `_token` or `_secret` after one of `api`, `access`, `secret`,
     `private`, `auth`, `bearer`, `client`, `session`, `signing`,
     `encryption`, `ssh`, `jwt`, `aws`, `refresh`, `webhook` (`api_key`,
@@ -954,7 +962,8 @@ Raw and temporary, unlike the curated graph above.
     `source_key`) is read like a label followed by a noun: only a
     secret-shaped value is masked. A name that only contains one of these
     words without ending in it (`password_reset_flow`, `cookie_banner`,
-    `pin_code_layout`, `passwd_file_path`) is not a label. And
+    `pin_code_layout`, `passwd_file_path`, `pw_policy_doc`,
+    `otp_screen_layout`) is not a label. And
     `token` or `key` after `api`, `access`, `auth`, `bearer`, `secret` or
     `refresh` ("access token", "refresh token", "auth token"). The fixed
     forms (token shapes, `Authorization:`
@@ -1060,7 +1069,8 @@ Raw and temporary, unlike the curated graph above.
 
   What is verified, by `tests/memory/test_working_redaction.py`,
   `test_working_redaction_fuzz.py` and `test_working_redaction_review*.py`
-  (five review rounds): the exact examples in [Handled forms
+  (eight review files, `test_working_redaction_review.py` to
+  `test_working_redaction_review8.py`): the exact examples in [Handled forms
   (tested)](#handled-forms-tested), with only the secret value changed to
   another value of the same kind, at least the row's minimum length and
   within its case limit (3 values per example, 525 inputs, plus the 45
@@ -1122,7 +1132,14 @@ Raw and temporary, unlike the curated graph above.
     masked (a secret-shaped value is);
   - a lower-case snake_case name ending in `_key`, `_token` or `_secret`
     with a prefix outside the whitelist above (`db_secret = tangerine`,
-    `deploy_token = hunter2`) keeps only a secret-shaped value masked;
+    `deploy_token = hunter2`) keeps only a secret-shaped value masked
+    (xfail);
+  - a camelCase name (`userPassword = zanewetiri`, `dbPassword:
+    zanewetiri`) is not a label in the extraction filter's pattern, so it
+    is not masked (xfail);
+  - a name ending in `_credential` (singular): `quality.SECRET_LABELS` has
+    only `credentials`, so `db_credential = zanewetiri` is not matched and
+    not masked (xfail; needs a quality.py change);
   - a hyphenated value of letters only in mixed case (`qvwrA-mzkpQ`) is
     masked in its own turn but is ordinary, so a bare repeat in another
     turn is not scrubbed;
@@ -1158,7 +1175,18 @@ Raw and temporary, unlike the curated graph above.
   the vault." is stored as "The password is [REDACTED].", by design. Main
   stores that sentence unchanged, so here the working layer is worse than
   main on purpose (main also stores "the password is swordfish" in the
-  clear). After a weak label (`key`, `auth`, `secret`, `token`), a value
+  clear). The same holds for the multi-word labels written with `_` and
+  for the strong suffixes, checked through Claude Code, Antigravity and a
+  direct save against origin/main, which keeps all four: "The
+  seed_phrase is shown once at setup.", "The auth_header is set by the
+  proxy." and "The license_key is printed on the box." are stored as
+  "The seed_phrase is [REDACTED]." and so on, and "The admin_pw field is
+  hidden." as "The admin_pw field is [REDACTED]." (the suffix rule does
+  not apply the noun rule). Names without a connector and value ("The
+  license_key table has two columns.", "See recovery_code_docs for
+  details.", "Open the auth_header module.", "Read the pw_policy_doc.",
+  "The otp_screen layout is done.") and a flag value ("The seed_phrase
+  feature is disabled.") are kept, as on main. After a weak label (`key`, `auth`, `secret`, `token`), a value
   of several words of letters only is kept, as on main ("the key is port
   8080" is kept too, since `8080` has no letters). But a one-word value,
   or a value with a word that has letters and digits or a secret-shaped

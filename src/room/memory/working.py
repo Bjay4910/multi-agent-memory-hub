@@ -132,10 +132,11 @@ _FLAGS = frozenset({"on", "off", "true", "false", "yes", "no", "none", "null", "
 
 def _is_flag(value: str) -> bool:
     """A setting, not a secret: the extraction filter's value starts with a flag word and every word after it is a
-    plain word of letters only ("foreign_keys = ON at connection setup", "password: false done"). "on SzFDVb2" is
-    not a flag clause."""
+    plain word of letters only that is not secret-shaped ("foreign_keys = ON at connection setup", "password: false
+    done"). "on SzFDVb2" and "on dlvpCtzswt" are not flag clauses."""
     words = [w.strip(_EDGE) for w in value.split()]
-    return bool(words) and words[0].lower() in _FLAGS and all(re.fullmatch(r"[A-Za-z]*", w) for w in words[1:])
+    return (bool(words) and words[0].lower() in _FLAGS and all(re.fullmatch(r"[A-Za-z]*", w) for w in words[1:])
+            and not any(_secret_shaped(w) for w in words[1:]))
 
 
 # Which of the extraction filter's matches the working layer keeps. Its labels "key", "token", "auth" and "secret" are
@@ -175,7 +176,11 @@ _CREDENTIAL_PREFIXES = frozenset("""api access secret private auth bearer client
 aws refresh webhook""".split())
 _CREDENTIAL_SUFFIXES = frozenset({"key", "token", "secret", "password"})
 # ... and with any prefix, a name ending in one of these is one (db_password, admin_passwd, session_cookie, card_pin)
-_STRONG_SUFFIXES = frozenset({"password", "passwd", "cookie", "pin"})
+# The multi-word labels of quality.SECRET_LABELS ("license key", "recovery code", "mot de passe"), matched with "_" and
+# "-" read as spaces: a name that ends in one of them ("license_key", "2fa_code", "my_license_key") is that label.
+_MULTI_WORD_LABELS = tuple(sorted((l for l in quality.SECRET_LABELS if " " in l), key=len, reverse=True))
+_STRONG_SUFFIXES = frozenset({"password", "passwd", "cookie", "pin", "passphrase", "passcode", "pwd", "pw", "otp",
+                              "totp", "pat", "psk", "hmac", "jwt", "credentials", "credential"})
 
 
 def _openers(text: str) -> "dict[int, tuple[str, re.Match]]":
@@ -210,7 +215,10 @@ def _label_before(text: str, start: int, openers: "dict | None" = None) -> "tupl
             m = nxt
     raw = m.group(0)
     label = re.sub(r"[ _-]+", " ", raw.lower()).strip()
-    if "_" in raw.strip("_"):
+    multi = next((l for l in _MULTI_WORD_LABELS if label == l or label.endswith(" " + l)), None)
+    if multi is not None:
+        label = multi  # "license_key", "my_license_key", "Recovery-Code": judged as the label itself, below
+    elif "_" in raw.strip("_"):
         if not re.search(r"[a-z]", raw):
             return label, "strong"  # an upper-case variable name: GITHUB_TOKEN, DB_SECRET
         parts = raw.lower().strip("_").split("_")

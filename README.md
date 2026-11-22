@@ -333,11 +333,14 @@ first, then redact.py's patterns), verified forms only: the exact examples in
 password is swordfish" is stored as "the password is [REDACTED]". After a
 strong label (password, passphrase, PIN, api key, ...) the rest of the clause
 is masked even when harmless ("The password is stored in the vault." is
-stored as "The password is [REDACTED]."). A snake_case name is such a label
-when it ends in `_password`, `_passwd`, `_cookie` or `_pin` (`db_password`,
-`card_pin`), or in `_key`, `_token` or `_secret` after a credential prefix
-such as api, access, client or auth (`api_key`, `client_secret`); `foreign_key`
-or `sort_key` are not. After the weak labels key, token,
+stored as "The password is [REDACTED]."). Multi-word labels may be written
+with `_` or `-` (`license_key`, `2fa_code`, `mot-de-passe`). A snake_case name
+is such a label when it ends in `_password`, `_passwd`, `_passphrase`,
+`_passcode`, `_pwd`, `_pw`, `_cookie`, `_pin`, `_otp`, `_totp`, `_pat`, `_psk`,
+`_hmac`, `_jwt` or `_credentials` (`db_password`, `card_pin`, `github_pat`), or
+in `_key`, `_token` or `_secret` after a credential prefix such as api,
+access, client or auth (`api_key`, `client_secret`); `foreign_key` or
+`sort_key` are not. After the weak labels key, token,
 auth and secret, a one-word value or one with a letters-and-digits word is
 masked ("the token is swordfish", and also "key = Python3.13", which main
 keeps), but several words of letters only, or a label followed by a noun,
@@ -666,7 +669,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 2,985 tests (counted with `pytest --collect-only`; 2,840 pass and 145 are expected failures, `xfail`, marking known gaps: 3 earlier ones, 33 strict ones for the stage 15 single-`=` base64 gap, and 109 strict ones for the working-layer gaps listed under [Working layer](docs/MEMORY.md#working-layer)). Four of them are extraction secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), and thirteen are working-layer fuzz tests (525 Handled-forms inputs and 45 hostile inputs, each captured three ways and read back through every output, once with the stage G3 leak check and once with a stricter one that also splits values at "."; and the 525 Handled-forms inputs again with seeds 3307, 4417 and 7719, each captured three ways, through a resumed Claude Code session and through Antigravity Stop hooks), so the suite takes about ten minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 3,356 tests (counted with `pytest --collect-only`; 3,208 pass and 148 are expected failures, `xfail`, marking known gaps: 3 earlier ones, 33 strict ones for the stage 15 single-`=` base64 gap, and 112 strict ones for the working-layer gaps listed under [Working layer](docs/MEMORY.md#working-layer)). Four of them are extraction secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), and thirteen are working-layer fuzz tests (525 Handled-forms inputs and 45 hostile inputs, each captured three ways and read back through every output, once with the stage G3 leak check and once with a stricter one that also splits values at "."; and the 525 Handled-forms inputs again with seeds 3307, 4417 and 7719, each captured three ways, through a resumed Claude Code session and through Antigravity Stop hooks), so the suite takes about ten minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a
