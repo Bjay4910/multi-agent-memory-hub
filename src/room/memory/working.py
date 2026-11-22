@@ -137,11 +137,85 @@ def _is_flag(value: str) -> bool:
     return bool(words) and words[0].strip(_EDGE).lower() in _FLAGS and not any(_secret_shaped(w) for w in words[1:])
 
 
+# Which of the extraction filter's matches the working layer keeps. Its labels "key", "token", "auth" and "secret" are
+# weak on their own: they name everyday things ("the key point is", "token expiry", "auth module", "secret weapon").
+# Every other label of quality.SECRET_LABELS is strong, as is a variable name (a label with a "NAME_" prefix:
+# GITHUB_TOKEN, api_key, CLIENT_SECRET) and a weak label after api / access / auth / bearer / secret / refresh
+# ("access token", "refresh token", "auth token").
+_WEAK_LABELS = frozenset({"key", "token", "auth", "secret"})
+_STRONG_BEFORE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:api|access|auth|bearer|secret|refresh)[ \t_-]?$")
+# quality's label pattern with the longest labels tried first, so "secret-code" is read as "secret code", not "secret"
+_LABEL_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:(?:[A-Za-z0-9]+_)*(?:"
+    + "|".join(l.replace(" ", "[ _-]?") for l in sorted(quality.SECRET_LABELS, key=len, reverse=True))
+    + r")|(?:[A-Za-z0-9]+_)+pat)(?![A-Za-z0-9])" + quality._COMPOUND, re.I)
+# A strong label directly followed by one of these nouns names a thing, not a credential ("API key header is named
+# X-Api-Key", "password field is required"); it is then read as a weak label followed by a noun.
+_THING = re.compile(r"(?i)[ \t_-]*(?:headers?|fields?|names?|formats?|lengths?|prefix(?:es)?|columns?|params?"
+                    r"|parameters?|variables?|settings?|rules?|requirements?|hints?|prompts?|inputs?|flows?|resets?"
+                    r"|rotations?|expiry|strength|types?|files?|modules?)\b")
+# A weak label directly followed by another word is a compound noun ("key point", "auth module", "secret santa"),
+# unless that word is one of these (the filler of a real credential sentence: "the token of my admin account is",
+# "the secret for Harbor Log equals", "token on staging =", "token as x").
+_FILLER_START = frozenset("""for of on in at to from with by as via under used we i you my our your his her their the
+a an this that these those here now today again also still currently then too is are was were be equals""".split())
+# (a [REDACTED] marker counts as a word, so the refusal check, which reads the masked text, decides as the mask did)
+_NEXT_WORD = re.compile(r"[\"'`*]{0,2}[ \t_-]+(\[REDACTED\]|[A-Za-z]+)")
+# kinds of quality match that come from a label written before the value (the rest are fixed forms: token shapes,
+# Authorization headers, curl -u, cookies, command-line flags, user:pass in URLs, upper-case variable names, and
+# "arr", a JSON list under a plural key)
+_LABELLED = ("a", "h", "wu", "ct", "ps", "xml")
+
+
+def _label_before(text: str, start: int) -> "tuple[str, str] | None":
+    """(label, kind) of the last label before ``start``: kind "strong", "weak" (a weak label on its own) or "noun"
+    (a label followed by a noun: "key point", "API key header")."""
+    norm = quality._normalized(text[max(0, start - 400):start])[0]
+    labels = list(_LABEL_RE.finditer(norm))
+    if not labels:
+        return None
+    m = labels[-1]
+    label = re.sub(r"[ _-]+", " ", m.group(0).lower()).strip()
+    if "_" in m.group(0).strip("_"):
+        return label, "strong"  # a variable name: GITHUB_TOKEN, DB_SECRET, api_key
+    if label not in _WEAK_LABELS:
+        return label, ("noun" if _THING.match(norm, m.end()) else "strong")
+    if _STRONG_BEFORE.search(norm[:m.start()]):
+        return label, "strong"  # access token, refresh token
+    nxt = _NEXT_WORD.match(norm, m.end())
+    return label, ("noun" if nxt and nxt.group(1).lower() not in _FILLER_START else "weak")
+
+
+def _keep(text: str, start: int, value: str, kind: str) -> bool:
+    """Whether the working layer keeps a quality match:
+    - never a flag value (see _is_flag);
+    - always a fixed form (a token shape, a header, a command-line flag, user:pass, ...);
+    - under a strong label, always;
+    - under a weak label on its own ("the token is x", "using token x", "secret: x"), when the value is one word,
+      has a word with letters and digits ("h5se today"), or has a secret-shaped word or piece;
+    - under a label followed by a noun ("key point", "secret weapon", "API key header"), only when the value has a
+      secret-shaped word or piece."""
+    if _is_flag(value):
+        return False
+    if kind == "arr" or not kind.startswith(_LABELLED):
+        return True
+    found = _label_before(text, start)
+    if found is None or found[1] == "strong":
+        return True
+    pieces = {value} | set(re.split(r"\s+", value)) | set(quality._PIECE_SPLIT.split(value))
+    if any(_secret_shaped(p.strip(_EDGE)) for p in pieces if p.strip(_EDGE)):
+        return True
+    if found[1] == "noun":
+        return False
+    words = [w.strip(_EDGE) for w in value.split()]
+    return len(words) == 1 or any(re.search(r"[A-Za-z]", w) and re.search(r"\d", w) for w in words)
+
+
 def _credential_spans(text: str) -> list[tuple[int, int]]:
-    """quality.credential_spans, minus values that are flags (see _is_flag); overlapping spans merged."""
+    """quality.credential_spans, minus what the working layer does not keep (see _keep); overlapping spans merged."""
     merged: list[tuple[int, int]] = []
-    for s, e, value, _kind in quality._credential_matches(text):
-        if _is_flag(value):
+    for s, e, value, kind in quality._credential_matches(text):
+        if not _keep(text, s, value, kind):
             continue
         if merged and s <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(e, merged[-1][1]))
@@ -201,7 +275,7 @@ _ORDINARY = re.compile(
     r"|(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?"  # 127.0.0.1:5432
     r"|[a-z0-9][a-z0-9.-]*:\d{1,5}"  # localhost:8080, db.internal:5432
     r"|https?://[^\s@:/]+(?::\d{1,5})?(?:/[^\s@]*)?"  # a URL without a user:password part
-    r"|[a-z]+(?:-[a-z]+)+"  # lowercase hyphenated words: read-only, not-found, non-empty
+    r"|[A-Za-z]+(?:-[A-Za-z]+)+"  # hyphenated words of letters only, any case: read-only, Not-Found, X-Request-Id
     r"|[A-Za-z]+'[A-Za-z]{1,2}"  # contractions: shouldn't, wouldn't
     r"|[A-Za-z][a-z]*(?:/[A-Za-z][a-z]*)+|[A-Z]+(?:/[A-Z]+)+")  # words joined by "/": True/False, input/output
 
@@ -223,11 +297,11 @@ def _ordinary(v: str) -> bool:
 
 
 def _identifier(v: str) -> bool:
-    """A plain camelCase or PascalCase identifier made of word-like parts (KeyError, defaultValue, isEnabled):
-    each part 2+ letters with a vowel and no run of 5 consonants. "qvwrAmzkp" and "kAmezovqr" are not."""
+    """A plain camelCase or PascalCase identifier made of word-like parts (KeyError, defaultValue, maxStrengths):
+    each part 2+ letters with a vowel. "qvwrAmzkp" and "kAmezovqr" are not."""
     if not re.fullmatch(r"[a-z]+(?:[A-Z][a-z]+)+|(?:[A-Z][a-z]+)+", v):
         return False
-    return all(len(p) >= 2 and re.search(r"[aeiouy]", p) and not re.search(r"[^aeiouy]{5}", p)
+    return all(len(p) >= 2 and re.search(r"[aeiouy]", p)
                for p in (s.lower() for s in re.findall(r"[A-Z]?[a-z]+", v)))
 
 

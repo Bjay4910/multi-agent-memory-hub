@@ -926,11 +926,46 @@ Raw and temporary, unlike the curated graph above.
   on the raw text first (`quality.mask_credentials`), then `redact_secrets`
   (redact.py, unchanged; run on each piece between `[REDACTED]` markers, so
   it does not half-mask a token or swallow `&page=2` after a masked
-  `api_key=`). One difference from extraction: a value that starts with a
-  flag word (`on`, `off`, `true`, `false`, `yes`, `no`, `none`, `null`, `nil`,
-  `enabled`, `disabled`) and has nothing secret-shaped after it is a setting,
-  not a secret, and is kept ("PRAGMA foreign_keys = ON at connection setup",
-  "auth = False"). Then secret-shaped values are scrubbed across the note:
+  `api_key=`). The working layer keeps only some of the extraction
+  filter's matches (`working._keep`; redact.py's are all kept):
+
+  - **Strong labels: always masked.** Every label of
+    `quality.SECRET_LABELS` except the four weak ones below: `client
+    secret`, `secret key`, `api key`, `access key`, `private key`,
+    `passphrase`, `passcode`, `password`, `passwd`, `pwd`, `pass`, `pw`,
+    `pin`, `otp`, `2fa code`, `recovery code`, `session cookie`, `cookie`,
+    `psk`, `secret code`, `seed phrase`, `auth header`, `credentials`,
+    `mot de passe`, `contraseña`, `passwort`, `密码`, `パスワード`, `jwt`,
+    `totp`, `hmac`, `license key` (a space may also be `_` or `-`). Also
+    strong: a variable name (a label with a `NAME_` prefix: `GITHUB_TOKEN`,
+    `api_key`, `DB_SECRET`), and `token` or `key` after `api`, `access`,
+    `auth`, `bearer`, `secret` or `refresh` ("access token", "refresh
+    token", "auth token"). The fixed forms (token shapes, `Authorization:`
+    headers, `curl -u`, cookies, command-line flags such as
+    `--password=`, `user:pass@` in URLs, upper-case variable names such as
+    `PGPASSWORD=`, JSON lists under a plural key) are always masked too.
+  - **Weak labels: `key`, `token`, `auth`, `secret` on their own.** Masked
+    when the value is one word ("the token is swordfish", "Log in using
+    token h8u7", `secret: "t6js"`), has a word with letters and digits
+    ("updated our token to h5se today"), or has a secret-shaped word or
+    piece ("The key is X9kQ2mLp7Zz9 for prod"). A value of several plain
+    words is kept, as on main: "The key is to keep it simple.", "Auth is
+    handled by the gateway.", "Token = one word piece".
+  - **A label followed by a noun** names a thing, not a credential: a weak
+    label followed by any word other than a filler word (`for`, `of`, `on`,
+    `to`, `as`, `the`, `my`, `is`, ...; "key point", "auth module", "token
+    expiry", "secret weapon", "key takeaway"), or a strong label followed
+    by `header`, `field`, `name`, `format`, `length`, `type`, `file`,
+    `module`, `reset` and a few more ("API key header is named
+    X-Api-Key."). Then only a value with a secret-shaped word or piece is
+    masked.
+  - **Flag values are kept:** a value that starts with a flag word (`on`,
+    `off`, `true`, `false`, `yes`, `no`, `none`, `null`, `nil`, `enabled`,
+    `disabled`) and has nothing secret-shaped after it is a setting, not a
+    secret ("PRAGMA foreign_keys = ON at connection setup", "auth =
+    False").
+
+  Then secret-shaped values are scrubbed across the note:
 
   - **Which values.** Only secret-shaped ones, taken from each region the
     two steps above mask in a turn's raw text (code blocks included): the
@@ -942,20 +977,26 @@ Raw and temporary, unlike the curated graph above.
     secret-shaped if it is a token or key form (quality's token shapes, or
     a redact.py pattern such as `sk-`, `ghp_`, `AKIA`, a JWT or a PEM
     block), or if it is one word (no whitespace) of 8 or more characters
-    that is not ordinary and has a digit or a symbol other than `_`, or
-    mixes upper and lower case without being a plain CamelCase identifier,
-    or had a Cyrillic lookalike or zero-width character inside Latin
-    letters. Ordinary, never scrubbed from other turns: phrases (anything
-    with a space), plain lower-case words, values of 7 or fewer characters,
-    valid calendar dates (`2026-11-22`, `20261122`), versions
+    that is not ordinary and either has a digit or a symbol other than
+    `_`, or had a Cyrillic lookalike or zero-width character inside Latin
+    letters, or has an upper-case letter after its first character and a
+    lower-case letter without being a plain CamelCase identifier. A word
+    whose only capital is its first letter (`Xkqzvwrt`), or that is all
+    capitals, is not secret-shaped. Ordinary, never scrubbed from other
+    turns: phrases (anything with a space), words without digits or
+    symbols that are not mixed case as above, values of 7 or fewer
+    characters, valid calendar dates (`2026-11-22`, `20261122`), versions
     (`2.4.1-beta`), IP addresses, `host:port`, `http(s)://` URLs without a
-    `user:password` part, lower-case hyphenated words (`read-only`,
-    `not-found`), contractions (`shouldn't`), words joined by `/`
-    (`True/False`), CamelCase identifiers made of word-like parts (2+
-    letters with a vowel each: `KeyError`, `defaultValue`, `isEnabled`; not
-    `qvwrAmzkp` or `kAmezovqr`), and dotted expressions of such words
-    (`str.lower`, `os.path.join`). Values of 8 or more digits, and digits
-    with symbols, still count unless they are one of those ordinary forms.
+    `user:password` part, hyphenated words made only of letters, in any
+    case (`read-only`, `Read-Only`, `Not-Found`, `Content-Type`,
+    `X-Request-Id`; `Read-Only-9Zk2` counts), contractions (`shouldn't`),
+    words joined by `/` (`True/False`), CamelCase identifiers whose parts
+    each have 2 or more letters and a vowel (`KeyError`, `defaultValue`,
+    `isEnabled`, `maxStrengths`; not `qvwrAmzkp`, whose first part has no
+    vowel, or `kAmezovqr` and `kMaxValue`, whose first part is one letter),
+    and dotted expressions of such words (`str.lower`, `os.path.join`).
+    Values of 8 or more digits, and digits with symbols, still count unless
+    they are one of those ordinary forms.
     So a weak or plain-word secret repeated bare in another turn is not
     caught (see the list below). The marker `[REDACTED]` is never a
     value.
@@ -999,7 +1040,7 @@ Raw and temporary, unlike the curated graph above.
 
   What is verified, by `tests/memory/test_working_redaction.py`,
   `test_working_redaction_fuzz.py` and `test_working_redaction_review*.py`
-  (four review rounds): the exact examples in [Handled forms
+  (five review rounds): the exact examples in [Handled forms
   (tested)](#handled-forms-tested), with only the secret value changed to
   another value of the same kind, at least the row's minimum length and
   within its case limit (3 values per example, 525 inputs, plus the 45
@@ -1044,12 +1085,32 @@ Raw and temporary, unlike the curated graph above.
   - a literal `[REDACTED]` typed inside a secret
     (`password: x9d8Jt12[REDACTED]rPuFQf34`): the piece after it is not
     labelled and is stored (fourth review; xfail);
-  - since the fourth review, these are ordinary and not scrubbed from
-    other turns when repeated bare: lower-case hyphenated passphrases
-    (`correct-horse-battery`), CamelCase secrets made of word-like parts
-    (`BlueHorseLamp`), dotted lower-case words, and 8-digit numbers that
-    are valid dates; a value that starts with a flag word and goes on in
-    plain words ("password: false alarm") is not masked at all;
+  - these are ordinary and not scrubbed from other turns when repeated
+    bare: hyphenated passphrases of letters only (`correct-horse-battery`,
+    `Blue-Horse-Lamp`), CamelCase secrets made of word-like parts
+    (`BlueHorseLamp`), dotted words, and 8-digit numbers that are valid
+    dates;
+  - a value that starts with a flag word and goes on in plain words is not
+    masked at all: "password: false alarm", "password: true story",
+    "password: yes please", "token: none needed here";
+  - a secret of several plain words behind a weak label (`key`, `token`,
+    `auth`, `secret`) is not masked, the same as main: "the token is
+    purple monkey dishwasher", "auth: tangerine basalt" (xfail);
+  - a flag word, then punctuation, then a secret: "password: on,
+    X9kQ2mLp7Zz9", "password: off; X9kQ2mLp7Zz9", "pin: on, 48213377"
+    store the secret (xfail). This is in the core filters, not the
+    working layer: the extraction filter's value ends at the punctuation
+    (`on`), and redact.py does not match. Checked through Claude Code,
+    Antigravity and a direct save: origin/main (1fc1e59) stores all three
+    unchanged, and a1ea489 masked only the flag word (`password:
+    [REDACTED], X9kQ2mLp7Zz9`). A fix needs a change in redact.py, which
+    needs approval;
+  - the leak check in these tests looks for the value as a substring, so
+    it can also find text the room writes itself: `null` in the note's
+    JSON (`"promoted_at": null`), or a short hex value inside a
+    16-character turn hash (`b833` in `bc45a83b833…`, the hash of
+    `step:2`). These are not leaks; the seed-3307 table test blanks the
+    hashes before it checks;
   - `test_working_redaction.py::test_the_refusal_rule_uses_the_stronger_check`
     is a strict xfail since the fourth review: it simulates a missed mask
     by patching `quality.mask_credentials`, which the working layer no
@@ -1059,12 +1120,29 @@ Raw and temporary, unlike the curated graph above.
   - the stage 15 one-case single-`=` base64 gap, and every other gap in
     [Known gaps](#known-gaps).
 
-  Recall cost: within a turn, a label, a connector and a value are masked
-  even when harmless (`sorted(xs, key=len)`, "auth = read-only", "the key
-  is port 8080"), as in extraction; flag values ("auth = False", "foreign
-  key constraints = on") are kept. That masking does not spread to other
-  turns: only secret-shaped values are scrubbed across turns, so "len",
-  "8080", "read-only" or "private" elsewhere in the note are kept. Sessions with fewer than 2 typed
+  Recall cost: within a turn, a strong label and its connector mask the
+  rest of the clause even when it is harmless: "The password is stored in
+  the vault." is stored as "The password is [REDACTED].", by design. Main
+  stores that sentence unchanged, so here the working layer is worse than
+  main on purpose (main also stores "the password is swordfish" in the
+  clear). A weak label with a one-word value is masked too, even when
+  harmless ("auth = read-only", "key = isEnabled", `sorted(xs, key=len)`).
+  Weak labels followed by plain words or by a noun are not masked, the
+  same as main ("the key is port 8080" is kept). Checked through Claude Code,
+  Antigravity and a direct save against origin/main (1fc1e59): these 13
+  sentences are stored unchanged by both: "The key point is that we ship
+  on Friday.", "The auth module is fine, no changes needed.", "Token
+  expiry is set to one hour by default.", "Key bindings are listed in the
+  help screen.", "The key is to keep it simple.", "Our secret weapon is
+  speed.", "Auth is handled by the gateway.", "API key header is named
+  X-Api-Key.", "The secret to good tests is small fixtures.", "The secret
+  santa list is in the shared drive.", "Auth errors are logged.", "key
+  takeaway: ship it", "Token = one word piece". From 55abab2 (the first
+  commit of gap 3; not on main) to cffce8e, the working layer masked all
+  13 ("The key point is [REDACTED]."); this was fixed in review 5. Masking
+  in one turn does not spread to other turns: only secret-shaped values
+  are scrubbed across turns, so "len", "8080", "read-only" or "private"
+  elsewhere in the note are kept. Sessions with fewer than 2 typed
   messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock
