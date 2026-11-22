@@ -328,13 +328,14 @@ automatically, but only if you turn it on. Claude Code sessions are saved
 after they end; Antigravity CLI conversations are saved after each turn,
 because `agy` has no end-of-session hook. Before anything is written, a note
 is masked in extraction's order (the extraction filter's credential mask
-first, then redact.py's patterns, then the values it withholds scrubbed from
-every turn), verified forms only: the exact examples in [Handled forms
-(tested)](docs/MEMORY.md#handled-forms-tested), so "the password is
-swordfish" is stored as "the password is [REDACTED]". The remaining
-boundaries are listed under [Working layer](docs/MEMORY.md#working-layer);
-notes written before this change (gap 3) are re-masked only if their session
-is captured again. Notes expire after 14 days.
+first, then redact.py's patterns), and the values masked in any turn are
+scrubbed from the note's other turns too, verified forms only: the exact
+examples in [Handled forms (tested)](docs/MEMORY.md#handled-forms-tested), so
+"the password is swordfish" is stored as "the password is [REDACTED]". The
+remaining boundaries are listed under [Working
+layer](docs/MEMORY.md#working-layer); a note written before this change (gap
+3) is masked again only if its session is captured again and adds a turn.
+Notes expire after 14 days.
 
 - **Working layer** (`~/.agent-room/working/`): what was said in recent
   sessions, kept almost as it was (only your typed text and the assistant's
@@ -373,7 +374,7 @@ background process and exits 0 at once, so it never slows down or breaks
 Claude Code. The background process reads the session transcript from
 `~/.claude/projects`, keeps only your typed text and the assistant's text
 (no thinking, tool calls, tool output, file contents, images, compaction
-summaries or harness notes; very long pastes are cut after masking), masks secrets with the extraction filter's credential mask before anything is written,
+summaries or harness notes; very long pastes are cut after masking and scrubbing), masks secrets with the extraction filter's credential mask before anything is written,
 and stores it as one working note per session, tagged with the project folder
 name. A resumed session adds only its new turns. Very short sessions are
 skipped, and a note in which a secret pattern still matches is not saved.
@@ -440,10 +441,12 @@ that id's path, so a payload cannot point capture at another file.
 
 The two working-layer tools only open files for reading: they never create,
 change or delete anything, and they skip expired notes. Their output goes
-through `redact_secrets` again. Notes captured since gap 3 was closed are
-already masked like extraction; a note written before that change can still
-hold a prefix-less password until it expires (gap 3 in the [known
-gaps](docs/MEMORY.md#known-gaps)). It is capped at 8,000
+through `redact_secrets` again, piece by piece between `[REDACTED]` markers
+(so "api_key=[REDACTED]&page=2" keeps "&page=2"). Notes captured since gap 3
+was closed are already masked as described under [Working
+layer](docs/MEMORY.md#working-layer); a note written before that change can
+still hold a prefix-less password until its session is captured again or it
+expires (gap 3 in the [known gaps](docs/MEMORY.md#known-gaps)). It is capped at 8,000
 characters and labelled as untrusted raw notes.
 
 How search and show stay safe:
@@ -646,7 +649,7 @@ environment, and a hard timeout that kills the whole process group.
 pytest
 ```
 
-The suite has 1,352 tests (counted with `pytest --collect-only`; 1,316 pass and 36 are expected failures, `xfail`, marking known gaps: 3 earlier ones and 33 strict ones for the stage 15 single-`=` base64 gap). Four of them are extraction secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), and four are working-layer fuzz tests (525 Handled-forms inputs and 45 hostile inputs, each captured three ways and read back through every output, once with the stage G3 leak check and once with a stricter one that also splits values at "."), so the suite takes about seven minutes. It uses fake agents, fake `claude`/`agy` executables and a
+The suite has 1,612 tests (counted with `pytest --collect-only`; 1,556 pass and 56 are expected failures, `xfail`, marking known gaps: 3 earlier ones, 33 strict ones for the stage 15 single-`=` base64 gap, and 20 strict ones for two working-layer gaps: a label with no connector, and a value below a code block). Four of them are extraction secret-leak fuzz tests (70,560, 20,032, 5,769 and 5,391 combinations, measured with `len()` of each test's case list; what each one scans is listed in the [known gaps](docs/MEMORY.md#known-gaps)), and four are working-layer fuzz tests (525 Handled-forms inputs and 45 hostile inputs, each captured three ways and read back through every output, once with the stage G3 leak check and once with a stricter one that also splits values at "."), so the suite takes about seven minutes. It uses fake agents, fake `claude`/`agy` executables and a
 temporary `AGENT_ROOM_HOME`; it makes no network calls and no real model calls.
 It covers schema migrations, search, dedupe and supersede, the recall budget,
 redaction, extractor validation and repair, the queue, every CLI command, and a

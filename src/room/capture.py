@@ -32,7 +32,7 @@ from pathlib import Path
 
 from . import paths
 from .memory import working
-from .memory.redact import REPLACEMENT, redact_secrets
+from .memory.redact import redact_secrets
 
 ROOM_SPAWNED_ENV = "ROOM_SPAWNED"
 SOURCE = "claude-code"
@@ -104,12 +104,17 @@ def log_event(status: str, project: str = "") -> None:
 
 # -- transcript parsing --------------------------------------------------------------------
 
-def clean_parts(text: str) -> tuple[str, str]:
-    """(raw, cleaned): strip harness wrappers, then mask (working.redact_for_note), then cut. Masking first means
-    a secret that straddles the cut is removed whole, not left as a fragment too short to match. ``raw`` (the
-    text before masking) is kept in memory only, so the working layer can scrub its values from other turns."""
+def strip_text(text: str) -> str:
+    """The typed text without harness wrappers ("" for an interrupt marker). Not masked: the working layer masks
+    it, scrubs every value withheld anywhere in the note, and only then cuts it to MAX_TURN_CHARS."""
     text = _WRAPPERS.sub("", text).strip()
-    if _INTERRUPT.match(text):
+    return "" if _INTERRUPT.match(text) else text
+
+
+def clean_parts(text: str) -> tuple[str, str]:
+    """(raw, cleaned) for one text on its own: stripped, then masked (working.redact_for_note), then cut."""
+    text = strip_text(text)
+    if not text:
         return "", ""
     masked = working.redact_for_note(text)
     if len(masked) > MAX_TURN_CHARS:
@@ -154,21 +159,20 @@ def parse_transcript(path: Path) -> tuple[set[str], list[dict]]:
             # Compaction summaries are written by the model, not typed by the user.
             if entry.get("isCompactSummary") or entry.get("isVisibleInTranscriptOnly"):
                 continue
-            parts = [p for p in (clean_parts(x) for x in _texts(entry)) if p[1]]
-            text = "\n\n".join(cleaned for _, cleaned in parts)
+            text = "\n\n".join(t for t in (strip_text(x) for x in _texts(entry)) if t)
             if not text:
                 continue
             key = entry.get("uuid") if isinstance(entry.get("uuid"), str) else hashlib.sha256(line.encode()).hexdigest()
-            items.append({"key": key, "role": kind, "ts": entry.get("timestamp"), "text": text,
-                          "raw": "\n\n".join(raw for raw, _ in parts)})
+            # raw text: working.upsert masks, scrubs across the note, then cuts (in memory until then)
+            items.append({"key": key, "role": kind, "ts": entry.get("timestamp"), "text": text, "raw": text,
+                          "cut": MAX_TURN_CHARS})
     return entrypoints, items
 
 
 def project_tag(cwd: str) -> str:
-    """The project folder's name: masked first (as written), then made safe, then cut to 40 characters."""
-    name = working.redact_for_note(Path(cwd).name) if cwd else ""
-    tag = re.sub(r"[^A-Za-z0-9 _.\-]+", "-", name).strip(" -.")[:40]
-    return tag or "unknown"
+    """The project folder's name on its own: masked first (as written), then made safe and cut to 40 characters.
+    Capture passes the raw name to working.upsert instead, which also scrubs the note's values from it."""
+    return working.tag(working.redact_for_note(Path(cwd).name) if cwd else "")
 
 
 # -- capture -------------------------------------------------------------------------------
@@ -204,10 +208,9 @@ def _capture_claude(hook: dict) -> tuple[str, dict | None]:
     entrypoints, items = parse_transcript(path)
     if any(ep.startswith("sdk") for ep in entrypoints):
         return "non-interactive", None
-    for item in items:  # again, per piece between markers, so "api_key=[REDACTED]&page=2" keeps "&page=2"
-        item["text"] = REPLACEMENT.join(redact_secrets(p) for p in item["text"].split(REPLACEMENT))
     try:
-        return working.upsert(SOURCE, hook["session_id"], project_tag(hook.get("cwd", "")), items)
+        # the raw folder name: upsert masks it, scrubs the note's values from it, then makes it safe and cuts it
+        return working.upsert(SOURCE, hook["session_id"], Path(hook.get("cwd") or "").name, items)
     except working.WorkingSafetyError:
         return "refused-location", None
 

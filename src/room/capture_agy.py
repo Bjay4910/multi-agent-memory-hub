@@ -37,7 +37,7 @@ from typing import BinaryIO
 from . import capture
 from .agents.base import SYSTEM_PROMPT
 from .memory import working
-from .memory.redact import REPLACEMENT, redact_secrets
+from .memory.redact import redact_secrets
 
 SOURCE = "antigravity"
 HOOK_EVENT = "Stop"
@@ -172,14 +172,18 @@ def parse_transcript(path: Path) -> tuple[str | None, list[dict]]:
             raw = user_request_text(content)
             if first_request is None:
                 first_request = raw
-            raw_text, text = capture.clean_parts(raw)
+            text = capture.strip_text(raw)
             if text and key:
-                items.append({"key": key, "role": "user", "ts": entry.get("created_at"), "text": text, "raw": raw_text})
+                items.append({"key": key, "role": "user", "ts": entry.get("created_at"), "text": text, "raw": text,
+                              "cut": capture.MAX_TURN_CHARS})
         elif kind == "PLANNER_RESPONSE" and isinstance(content, str) and content.strip() and key:
             # Only the reply text: never 'thinking' or 'tool_calls'. A later reply in the same turn replaces it.
-            raw_text, text = capture.clean_parts(content)
+            text = capture.strip_text(content)
             if text:
-                pending = {"key": key, "role": "assistant", "ts": entry.get("created_at"), "text": text, "raw": raw_text}
+                if pending:  # a later reply replaces it; its raw text is still used for withholding (never stored)
+                    items.append({"role": "draft", "raw": pending["raw"]})
+                pending = {"key": key, "role": "assistant", "ts": entry.get("created_at"), "text": text, "raw": text,
+                           "cut": capture.MAX_TURN_CHARS}
         # GENERIC (tool output, file contents) and SYSTEM_MESSAGE are dropped.
     flush()
     return first_request, items
@@ -219,10 +223,9 @@ def _capture_antigravity(hook: dict) -> tuple[str, dict | None]:
         return "no-user-input", None
     if is_room_prompt(first_request):
         return "room-spawned", None
-    for item in items:  # again, per piece between markers, so "api_key=[REDACTED]&page=2" keeps "&page=2"
-        item["text"] = REPLACEMENT.join(redact_secrets(p) for p in item["text"].split(REPLACEMENT))
     try:
-        return working.upsert(SOURCE, hook["conversationId"], capture.project_tag(_project_source(hook)), items)
+        source = _project_source(hook)
+        return working.upsert(SOURCE, hook["conversationId"], Path(source).name if source else "", items)
     except working.WorkingSafetyError:
         return "refused-location", None
 

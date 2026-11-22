@@ -746,13 +746,13 @@ gaps in the question, noise and secret rules:
   means" definition and minimum lengths as [Handled forms
   (tested)](#handled-forms-tested), and every gap in this list applies to
   them too, including the stage 15 one-case single-`=` base64 gap.
-  `room/memory/redact.py` itself is unchanged. The second review's findings
-  (half-masked tokens, the turn cut, bare repeats across turns and captures,
-  the project name, lookalike repeats) are fixed and tested. Not covered:
-  the boundaries listed under [Working layer](#working-layer), and notes
-  written before this change that are not captured again (they expire 14
-  days after their last update, and `room working purge --all` deletes every
-  note).
+  `room/memory/redact.py` itself is unchanged. Both reviews' cases are
+  tested (see [Working layer](#working-layer)), except two documented as
+  strict xfails: a label with no connector, and a value below a code block.
+  Not covered: the boundaries listed under [Working layer](#working-layer),
+  and notes written before this change whose session is not captured again
+  (they expire 14 days after their last update, and `room working purge
+  --all` deletes every note).
   `room working promote` copies a note's turns as stored, so promoting an
   older note copies its older redaction.
 - A fact before a question is kept only when a comma separates it from the
@@ -920,58 +920,85 @@ Raw and temporary, unlike the curated graph above.
   opt-in with the same switch; it runs after each turn and keeps only your typed
   request and the final reply of each turn; the room's own `agy` calls, any
   `agy -p` run, and the Antigravity desktop app and IDE are not captured).
-  Before the write, every turn and the project name are masked in
-  extraction's order (`working.redact_for_note`, gap 3): first the extraction
-  filter's credential mask on the text as captured
-  (`quality.mask_credentials`), then `redact_secrets` (redact.py, unchanged;
-  run on each piece between `[REDACTED]` markers, so it cannot half-mask a
-  token or swallow `&page=2` after a masked `api_key=`), then every value the
-  extraction filter withholds is replaced by `[REDACTED]` in every turn of the
-  note: the turns being added, the turns already stored (re-masked on each
-  update), and the project name. Withheld values come from all turns the
-  capture passes; both captures re-read the whole transcript, so a resumed
-  Claude Code session or a later Antigravity Stop hook still sees the first
-  turns (in memory only; the unmasked text is never written). The match also
-  runs on the normalized text (NFKC, zero-width characters removed, the
-  Cyrillic lookalikes quality folds), so a repeat written with those
-  lookalikes is caught. Each message is cut at 2,000 characters after it is
-  masked, so a secret across the cut is masked whole. The project name is
-  masked as written, then made safe and cut to 40 characters, and the
-  capture log records the name exactly as stored. If a secret pattern still
-  matches after this (redact.py's, checked piece by piece, or the extraction
-  filter's), nothing is written.
+  Before the write, each turn is masked in extraction's order
+  (`working.redact_for_note`, gap 3): the extraction filter's credential mask
+  on the raw text first (`quality.mask_credentials`), then `redact_secrets`
+  (redact.py, unchanged; run on each piece between `[REDACTED]` markers, so
+  it does not half-mask a token or swallow `&page=2` after a masked
+  `api_key=`). Then values are scrubbed across the note:
+
+  - **Which values.** From the raw text of each turn on its own: every
+    region the two steps above mask (code blocks included), whole; its
+    unescaped form (`vqx\"zmk` also as `vqx"zmk`); and its words and pieces
+    of 3+ digits, 5+ letters, or 3+ other characters. The marker
+    `[REDACTED]` itself is never a value.
+  - **From which turns.** Every turn the capture passes (both captures
+    re-read the whole transcript, so a resumed Claude Code session or a
+    later Antigravity Stop hook still sees the first turns; the raw text
+    stays in memory and is never written), Antigravity replies that a later
+    reply in the same turn replaced, the turns already stored, and the raw
+    project folder name.
+  - **Where they are replaced.** In the turns being added and in the stored
+    turns, which are masked again in full on each update. A value that
+    starts or ends with a letter or digit matches only as a whole word there
+    ("plan" leaves "airplane" alone), and a match that overlaps an existing
+    marker is skipped. Matching runs on the normalized text: zero-width
+    characters are removed and quality's Cyrillic lookalikes (а е о р с х
+    and their capitals) are read as Latin; checked with а and U+200B.
+  - **Cuts.** A captured message is cut at 2,000 characters only after it
+    is masked and scrubbed, so a repeat across the cut is masked whole
+    (checked for a value starting 6 characters before the cut).
+  - **Project name.** The capture passes the raw folder name; it is masked,
+    scrubbed with the note's values, then made safe (letters, digits, space,
+    `_ . -`) and cut to 40 characters. The capture log records the name
+    exactly as stored in the note.
+  - **Refusal.** If a secret pattern still matches one turn on its own, or
+    the project name (redact.py's, checked piece by piece, or the
+    extraction filter's), nothing is written.
 
   What is verified, by `tests/memory/test_working_redaction.py`,
-  `test_working_redaction_fuzz.py` and `test_working_redaction_review.py`:
-  the exact examples in [Handled forms (tested)](#handled-forms-tested), with
-  only the secret value changed to another value of the same kind, at least
-  the row's minimum length and within its case limit (3 values per example,
-  525 inputs, plus the 45 hostile inputs), each captured through Claude Code,
-  Antigravity and a direct save and read back through `room working
-  list/show/search` and the MCP tools; and the second review's cases (tokens
-  masked whole, secrets across the 2,000-character cut, bare repeats in a
-  later turn, a resumed session or a later Stop hook, the project folder
-  name, a Cyrillic lookalike repeat). Ordinary sessions are stored exactly
-  as before (20 checked).
+  `test_working_redaction_fuzz.py`, `test_working_redaction_review.py` and
+  `test_working_redaction_review2.py`: the exact examples in [Handled forms
+  (tested)](#handled-forms-tested), with only the secret value changed to
+  another value of the same kind, at least the row's minimum length and
+  within its case limit (3 values per example, 525 inputs, plus the 45
+  hostile inputs), captured through Claude Code, Antigravity and a direct
+  save and read back through `room working list/show/search` and the MCP
+  tools; and both reviews' cases (bare repeats of letters-only, digits-only,
+  multi-word and JSON-escaped values in a later turn, a resumed session or a
+  later Stop hook; repeats across the 2,000- and 40-character cuts; secrets
+  in the folder name; fenced redact.py-only secrets repeated with а or
+  U+200B; replaced Antigravity replies; parameters after a masked value in
+  the MCP output). 20 ordinary sessions are stored exactly as before.
 
-  Not covered (each checked by running it): a value before its label
-  ("crimson42 is my password"); labels that are not listed ("la clave es
-  pino42"); values below a row's minimum length; a label used as a variable
-  prefix ("SECRET_VALUE=lavender743"); more than 6 filler words between the
-  label and the connector; a value split across two turns ("the password is
-  crim" then "son42"); the stage 15 one-case single-`=` base64 gap; a repeat
-  written with lookalikes outside the folded Cyrillic set (Greek `ο` in
-  "swοrdfish"); and every other gap in [Known gaps](#known-gaps). A JSON
-  `"Authorization"` line with `Token` or `Basic` is stored with its value
-  masked. Masking costs recall, as in extraction: a label, a connector and a
-  value are masked even when harmless, for example "foreign key constraints
-  = on" and `sorted(xs, key=len)` (in prose or in a code block, since
-  working notes keep code blocks).
+  Not covered (each checked by running it):
 
-  Notes written before this change are rewritten only when their session is
-  captured again (the update re-masks the stored turns with the values the
-  extraction filter finds in them); other notes keep their older redaction
-  until they expire or are deleted with `room working purge --all`. Sessions with fewer than 2 typed
+  - a value split across two turns ("the password is crim", then "son42");
+  - labels that are not listed ("la clave es pino42"), a value before its
+    label, and a label used as a variable prefix ("SECRET_VALUE=x");
+  - a label with no connector ("seed phrase tangerine basalt pelican
+    spruce"; strict xfail), and a value below a code block under its label
+    ("password:", a code block, then the value; strict xfail);
+  - values below a row's minimum length, and more than 6 filler words;
+  - JSON `\u` escapes (`"\u006cilac831"` is masked, a later bare
+    "lilac831" is not);
+  - URL-decoded repeats (`lil%40c831` is masked, a later "lil@c831" is
+    not);
+  - Cyrillic letters outside the folded set (і in "pіne4417") and Greek
+    lookalikes (ο in "swοrdfish");
+  - the stage 15 one-case single-`=` base64 gap, and every other gap in
+    [Known gaps](#known-gaps).
+
+  Recall costs, as in extraction: a label, a connector and a value are
+  masked even when harmless ("foreign key constraints = on",
+  `sorted(xs, key=len)`, in prose or in a code block, since working notes
+  keep code blocks); and words of 5+ letters inside a masked region are
+  scrubbed from every turn of the note ("staging" from "the password is X
+  for staging", the user name "admin" from a URL with a password).
+
+  A note written before this change is masked again in full only when its
+  session is captured again and adds a turn; other notes keep their older
+  redaction until they expire or are deleted with `room working purge --all`. Sessions with fewer than 2 typed
   messages or
   under 400 characters are skipped. Each message is cut at 2,000 characters and
   a note keeps at most 8,000 characters, dropping the oldest turns first. A lock

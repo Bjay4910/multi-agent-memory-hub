@@ -113,11 +113,9 @@ def _lock(directory: Path) -> Iterator[None]:
 
 
 def redact_for_note(text: str, withheld: "set[str] | frozenset[str]" = frozenset()) -> str:
-    """The masking every working note gets before it is written, in extraction's order: the extraction filter's
-    credential mask on the raw text first (quality.mask_credentials, the forms verified in docs/MEMORY.md
-    "Handled forms (tested)"), then redact_secrets, then every withheld value of this text and of ``withheld``
-    (values seen elsewhere in the same note, such as a secret repeated bare in a later turn) replaced by
-    [REDACTED], also where it is written with lookalike letters or zero-width characters."""
+    """The masking every working-note text gets, in extraction's order: the extraction filter's credential mask
+    on the raw text first (quality.mask_credentials), then redact_secrets (piece by piece between markers), then
+    every withheld value of this text and of ``withheld`` replaced by [REDACTED] (see _withheld and _scrub)."""
     return _scrub(_masked(text), set(withheld) | _withheld(text))
 
 
@@ -129,52 +127,65 @@ def _masked(text: str) -> str:
     return REPLACEMENT.join(redact_secrets(piece) for piece in masked.split(REPLACEMENT))
 
 
-_LETTER_DIGIT = re.compile(r"(?=[^\W\d_]*\d|\d*[^\W\d_])(?=.*[^\W\d_])(?=.*\d)")
+def _regions(text: str) -> set[str]:
+    """The pieces of ``text`` this pipeline masks: the extraction filter's spans (code blocks included), and
+    what redact_secrets masks between them."""
+    regions = {text[s:e] for s, e in quality.credential_spans(text)}
+    for piece in quality.mask_credentials(text).split(REPLACEMENT):
+        regions |= quality.redact_masked_substrings(piece)
+    return {r for r in regions if r and r != REPLACEMENT}
+
+
+_EDGE = ".,;:!?()[]{}<>'\"`"
+
+
+def _piece_counts(piece: str) -> bool:
+    """A piece of a masked region worth scrubbing elsewhere: 3+ digits, 5+ letters, or 3+ of anything else."""
+    if piece.isdigit():
+        return len(piece) >= 3
+    if re.fullmatch(r"[^\W\d_]+", piece):
+        return len(piece) >= 5
+    return len(piece) >= 3
 
 
 def _withheld(text: str) -> set[str]:
-    """quality.withheld_values, plus every letter-and-digit piece (3+ characters) of each masked value even where
-    it is still visible (a repeat such as "dioptase445" in "password: dioptase445 (yes, dioptase445 ...)");
-    never the [REDACTED] marker or anything that contains it."""
-    values = set(quality.withheld_values(text))
-    for s, e, norm, _kind in quality._credential_matches(text):
-        for value in (text[s:e], norm):
-            values |= {p for p in quality._PIECE_SPLIT.split(value) if len(p) >= 3 and _LETTER_DIGIT.match(p)}
-    values = {v for v in values if "redacted" not in v.lower()}
-    # Only values inside what this pipeline masked: redact_secrets alone would also take "&page=2" after a
-    # masked "api_key=" value, and scrubbing that would eat a harmless parameter.
-    regions = _masked_regions(text)
-    if regions is None:
-        return values
-    return {v for v in values if any(v in r for r in regions) or any(quality._normalized(v)[0] in quality._normalized(r)[0]
-                                                                     for r in regions)}
-
-
-def _masked_regions(text: str) -> "list[str] | None":
-    """The pieces of ``text`` that _masked replaced by [REDACTED] (None if they cannot be placed)."""
-    kept = _masked(text).split(REPLACEMENT)
-    if len(kept) == 1:
-        return []
-    m = re.fullmatch("(.+?)".join(re.escape(k) for k in kept), text, re.S)
-    return list(m.groups()) if m else None
+    """Values to scrub from every turn of a note, from the raw ``text`` of one turn: each masked region whole
+    (2+ characters), its unescaped form, and its words and pieces (_piece_counts), even where the same word is
+    still visible elsewhere. The marker itself is never a value."""
+    values: set[str] = set()
+    for region in _regions(text):
+        for form in {region, re.sub(r"\\(.)", r"\1", region)}:
+            form = form.replace(REPLACEMENT, " ").strip()
+            if len(form) >= 2:
+                values.add(form)
+            for piece in re.split(r"\s+", form) + quality._PIECE_SPLIT.split(form):
+                piece = piece.strip(_EDGE)
+                if piece and _piece_counts(piece):
+                    values.add(piece)
+    values.discard(REPLACEMENT)
+    return values
 
 
 _MARKER = re.compile(re.escape(REPLACEMENT))
 
 
 def _scrub(text: str, values: "set[str] | frozenset[str]") -> str:
-    """Replace every value of 3+ characters by [REDACTED], case-insensitively, matched on the normalized text
-    (quality's NFKC, zero-width removal and lookalike folding) and mapped back to the original characters."""
-    wanted = sorted({n for n in (quality._normalized(v)[0] for v in values) if len(n) >= 3}, key=len, reverse=True)
+    """Replace each value (2+ characters) by [REDACTED], case-insensitively, on the normalized text (quality's
+    NFKC, zero-width removal and folding of its Cyrillic lookalikes) mapped back to the original characters. A
+    value that starts or ends with a letter or digit only matches as a whole word there ("plan" leaves
+    "airplane" alone), and a match that overlaps an existing marker is skipped."""
+    wanted = sorted({n for n in (quality._normalized(v)[0].strip() for v in values) if len(n) >= 2}, key=len, reverse=True)
     if not text or not wanted:
         return text
     norm, origin = quality._normalized(text)
     markers = [m.span() for m in _MARKER.finditer(text)]
     spans = []
     for value in wanted:
-        for m in re.finditer(re.escape(value), norm, re.I):
+        pattern = ((r"(?<!\w)" if re.match(r"\w", value[0]) else "") + re.escape(value)
+                   + (r"(?!\w)" if re.match(r"\w", value[-1]) else ""))
+        for m in re.finditer(pattern, norm, re.I):
             s, e = origin[m.start()], quality._end(text, origin, m.end())
-            if not any(ms <= s and e <= me for ms, me in markers):  # never inside an existing marker
+            if not any(s < me and ms < e for ms, me in markers):
                 spans.append((s, e))
     if not spans:
         return text
@@ -189,6 +200,11 @@ def _scrub(text: str, values: "set[str] | frozenset[str]") -> str:
         out += [text[last:s], REPLACEMENT]
         last = e
     return "".join(out) + text[last:]
+
+
+def tag(project: str) -> str:
+    """A project name made safe for a note: letters, digits, space, "_", "." and "-", at most 40 characters."""
+    return re.sub(r"[^A-Za-z0-9 _.\-]+", "-", project).strip(" -.")[:40] or "unknown"
 
 
 def _still_secret(text: str) -> bool:
@@ -209,11 +225,16 @@ def _raw(item: dict) -> str:
 
 
 def _clean_turn(turn: dict, withheld: "set[str] | frozenset[str]" = frozenset()) -> dict | None:
+    """Mask the turn's raw text, scrub every withheld value of the note, and only then cut it (to ``cut``
+    characters if the capture asked for that, and to MAX_NOTE_CHARS), so a secret across a cut is masked whole."""
     role = turn.get("role")
-    text = turn.get("text")
-    if role not in ("user", "assistant") or not isinstance(text, str):
+    if role not in ("user", "assistant") or not isinstance(turn.get("text"), str):
         return None
-    text = redact_for_note(text.strip(), withheld)[:MAX_NOTE_CHARS]
+    text = _scrub(_masked(_raw(turn).strip()), withheld)
+    limit = turn.get("cut")
+    if isinstance(limit, int) and len(text) > limit:
+        text = text[:limit] + f"\n[... {len(text) - limit:,} characters cut]"
+    text = text[:MAX_NOTE_CHARS]
     if not text:
         return None
     return {"role": role, "ts": str(turn.get("ts") or "")[:40], "text": text}
@@ -242,15 +263,20 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
                  and isinstance(i.get("text"), str)]
         new_valid = [i for i in valid if i.get("key") and _hash(str(i["key"])) not in seen]
         old_turns = existing["turns"] if live else []
-        # Values withheld anywhere in the note are scrubbed from every turn: all turns the capture passed (it
+        # Withheld values come from each turn on its own, from its raw text: every turn the capture passed (it
         # re-reads the whole transcript, so a resumed session or a later Stop hook still sees the first turns,
-        # unmasked, in memory only), the turns already stored, and the project name.
-        withheld = _withheld("\n".join([_raw(i) for i in valid] + [t["text"] for t in old_turns] + [project]))
+        # unmasked, in memory only), replies a later reply replaced ("draft" items), the turns already stored,
+        # and the raw project folder name. They are scrubbed from every turn and the project name.
+        drafts = [i["raw"] for i in items if isinstance(i, dict) and i.get("role") == "draft" and isinstance(i.get("raw"), str)]
+        withheld: set[str] = set()
+        for text in [_raw(i) for i in valid] + drafts + [t["text"] for t in old_turns] + [project]:
+            withheld |= _withheld(text)
         raw = [_raw(i) for i in new_valid]
         new_turns = [t for t in (_clean_turn(i, withheld) for i in new_valid) if t]
         if not new_turns:
             return "unchanged", existing if live else None
-        old_turns = [{**t, "text": _scrub(t["text"], withheld)} for t in old_turns]
+        # the stored turns are masked again in full (a note written by older code gets the strong mask too)
+        old_turns = [{**t, "text": _scrub(_masked(t["text"]), withheld)} for t in old_turns]
         turns = old_turns + new_turns
         if not live:
             # judged on the text as captured, so masking a long secret clause does not change what is kept
@@ -263,10 +289,11 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
             dropped += 1
         # nothing is written if a secret pattern still matches after redaction and masking (checked before the
         # withheld-value scrub, which is an extra layer on top)
+        # each text on its own: joined, a turn ending in "My staging password:" would take the next turn as a value
         check = [_masked(project)] + [_masked(t.strip()) for t in raw] + [t["text"] for t in old_turns]
-        if _still_secret("\n".join(check)):
+        if any(_still_secret(c) for c in check):
             return "refused-secret", None
-        project = redact_for_note(project, withheld)[:40] or "unknown"
+        project = tag(_scrub(_masked(project), withheld))  # masked and scrubbed, then made safe and cut
         note = {
             "version": FORMAT_VERSION,
             "id": existing["id"] if existing else f"{source}-{new_session_id()}",
