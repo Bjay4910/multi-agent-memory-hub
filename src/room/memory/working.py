@@ -35,7 +35,7 @@ from ..fsutil import atomic_write_json
 from ..transcript import ROLE_AGENT, ROLE_USER, Message, new_session_id
 from .paths import RepoWriteError, ensure_outside_repo
 from . import quality
-from .redact import find_secrets, redact_secrets
+from .redact import REPLACEMENT, find_secrets, redact_secrets
 
 SOURCES = ("claude-code", "antigravity")
 _ASSISTANT_AGENT = {"claude-code": "claude", "antigravity": "gemini"}  # agent name for the assistant's turns
@@ -113,21 +113,99 @@ def _lock(directory: Path) -> Iterator[None]:
 
 
 def redact_for_note(text: str, withheld: "set[str] | frozenset[str]" = frozenset()) -> str:
-    """The masking every working note gets before it is written: redact_secrets, then the extraction filter's
-    credential mask (quality.mask_credentials, the forms verified in docs/MEMORY.md "Handled forms (tested)"),
-    then every withheld value of this text and of ``withheld`` (a value seen elsewhere in the same note, such as
-    a secret repeated bare in a later turn) replaced by [REDACTED]."""
-    return quality.scrub_withheld(_masked(text), set(withheld) | quality.withheld_values(text))
+    """The masking every working note gets before it is written, in extraction's order: the extraction filter's
+    credential mask on the raw text first (quality.mask_credentials, the forms verified in docs/MEMORY.md
+    "Handled forms (tested)"), then redact_secrets, then every withheld value of this text and of ``withheld``
+    (values seen elsewhere in the same note, such as a secret repeated bare in a later turn) replaced by
+    [REDACTED], also where it is written with lookalike letters or zero-width characters."""
+    return _scrub(_masked(text), set(withheld) | _withheld(text))
 
 
 def _masked(text: str) -> str:
-    """redact_secrets, then the extraction filter's credential mask (before the withheld-value scrub)."""
-    return quality.mask_credentials(redact_secrets(text))
+    """The strong mask on the raw text, then redact_secrets (so redact.py never half-masks a token first).
+    redact_secrets runs on each piece between [REDACTED] markers: run over a marker it reads
+    "api_key=[REDACTED]&page=2" as one value and swallows "&page=2"; a masked value cannot span a marker."""
+    masked = quality.mask_credentials(text)
+    return REPLACEMENT.join(redact_secrets(piece) for piece in masked.split(REPLACEMENT))
+
+
+_LETTER_DIGIT = re.compile(r"(?=[^\W\d_]*\d|\d*[^\W\d_])(?=.*[^\W\d_])(?=.*\d)")
+
+
+def _withheld(text: str) -> set[str]:
+    """quality.withheld_values, plus every letter-and-digit piece (3+ characters) of each masked value even where
+    it is still visible (a repeat such as "dioptase445" in "password: dioptase445 (yes, dioptase445 ...)");
+    never the [REDACTED] marker or anything that contains it."""
+    values = set(quality.withheld_values(text))
+    for s, e, norm, _kind in quality._credential_matches(text):
+        for value in (text[s:e], norm):
+            values |= {p for p in quality._PIECE_SPLIT.split(value) if len(p) >= 3 and _LETTER_DIGIT.match(p)}
+    values = {v for v in values if "redacted" not in v.lower()}
+    # Only values inside what this pipeline masked: redact_secrets alone would also take "&page=2" after a
+    # masked "api_key=" value, and scrubbing that would eat a harmless parameter.
+    regions = _masked_regions(text)
+    if regions is None:
+        return values
+    return {v for v in values if any(v in r for r in regions) or any(quality._normalized(v)[0] in quality._normalized(r)[0]
+                                                                     for r in regions)}
+
+
+def _masked_regions(text: str) -> "list[str] | None":
+    """The pieces of ``text`` that _masked replaced by [REDACTED] (None if they cannot be placed)."""
+    kept = _masked(text).split(REPLACEMENT)
+    if len(kept) == 1:
+        return []
+    m = re.fullmatch("(.+?)".join(re.escape(k) for k in kept), text, re.S)
+    return list(m.groups()) if m else None
+
+
+_MARKER = re.compile(re.escape(REPLACEMENT))
+
+
+def _scrub(text: str, values: "set[str] | frozenset[str]") -> str:
+    """Replace every value of 3+ characters by [REDACTED], case-insensitively, matched on the normalized text
+    (quality's NFKC, zero-width removal and lookalike folding) and mapped back to the original characters."""
+    wanted = sorted({n for n in (quality._normalized(v)[0] for v in values) if len(n) >= 3}, key=len, reverse=True)
+    if not text or not wanted:
+        return text
+    norm, origin = quality._normalized(text)
+    markers = [m.span() for m in _MARKER.finditer(text)]
+    spans = []
+    for value in wanted:
+        for m in re.finditer(re.escape(value), norm, re.I):
+            s, e = origin[m.start()], quality._end(text, origin, m.end())
+            if not any(ms <= s and e <= me for ms, me in markers):  # never inside an existing marker
+                spans.append((s, e))
+    if not spans:
+        return text
+    merged: list[list[int]] = []
+    for s, e in sorted(spans):
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    out, last = [], 0
+    for s, e in merged:
+        out += [text[last:s], REPLACEMENT]
+        last = e
+    return "".join(out) + text[last:]
 
 
 def _still_secret(text: str) -> bool:
-    """A secret pattern still matches: redact.py's, or the extraction filter's (stronger) one."""
-    return bool(find_secrets(text)) or quality.has_credential(text)
+    """A secret pattern still matches: redact.py's (checked on each piece between [REDACTED] markers, as
+    redact_secrets is run, so a label followed by a marker is not read as a labelled value), or the extraction
+    filter's (stronger) one."""
+    # "Authorization: Bearer [REDACTED]" is masked already; the extraction pattern would read "Bearer" as the value.
+    text = _SCHEME_THEN_MARKER.sub(REPLACEMENT, text)
+    return any(find_secrets(piece) for piece in text.split(REPLACEMENT)) or quality.has_credential(text)
+
+
+_SCHEME_THEN_MARKER = re.compile(r"(?i)\b(?:bearer|basic|token)\s+" + re.escape(REPLACEMENT))
+
+
+def _raw(item: dict) -> str:
+    """The text as captured, before any masking (the capture paths pass it as "raw"; it is never written)."""
+    return item["raw"] if isinstance(item.get("raw"), str) else item["text"]
 
 
 def _clean_turn(turn: dict, withheld: "set[str] | frozenset[str]" = frozenset()) -> dict | None:
@@ -160,13 +238,20 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
         live = existing is not None and not _expired(existing, now)
         seen = set(existing.get("turn_keys", [])) if existing else set()
         new_items = [i for i in items if isinstance(i, dict) and i.get("key") and _hash(str(i["key"])) not in seen]
-        # values withheld anywhere in the new turns (or the project name) are scrubbed from all of them
-        raw = [i["text"] for i in new_items if isinstance(i.get("text"), str)]
-        withheld = quality.withheld_values("\n".join(raw + [project]))
-        new_turns = [t for t in (_clean_turn(i, withheld) for i in new_items) if t]
+        valid = [i for i in items if isinstance(i, dict) and i.get("role") in ("user", "assistant")
+                 and isinstance(i.get("text"), str)]
+        new_valid = [i for i in valid if i.get("key") and _hash(str(i["key"])) not in seen]
+        old_turns = existing["turns"] if live else []
+        # Values withheld anywhere in the note are scrubbed from every turn: all turns the capture passed (it
+        # re-reads the whole transcript, so a resumed session or a later Stop hook still sees the first turns,
+        # unmasked, in memory only), the turns already stored, and the project name.
+        withheld = _withheld("\n".join([_raw(i) for i in valid] + [t["text"] for t in old_turns] + [project]))
+        raw = [_raw(i) for i in new_valid]
+        new_turns = [t for t in (_clean_turn(i, withheld) for i in new_valid) if t]
         if not new_turns:
             return "unchanged", existing if live else None
-        turns = (existing["turns"] if live else []) + new_turns
+        old_turns = [{**t, "text": _scrub(t["text"], withheld)} for t in old_turns]
+        turns = old_turns + new_turns
         if not live:
             # judged on the text as captured, so masking a long secret clause does not change what is kept
             users = sum(1 for t in turns if t["role"] == "user")
@@ -178,8 +263,7 @@ def upsert(source: str, source_key: str, project: str, items: list[dict], *,
             dropped += 1
         # nothing is written if a secret pattern still matches after redaction and masking (checked before the
         # withheld-value scrub, which is an extra layer on top)
-        check = [_masked(project)] + [_masked(t.strip()) for t in raw]
-        check += [t["text"] for t in (existing["turns"] if live else [])]
+        check = [_masked(project)] + [_masked(t.strip()) for t in raw] + [t["text"] for t in old_turns]
         if _still_secret("\n".join(check)):
             return "refused-secret", None
         project = redact_for_note(project, withheld)[:40] or "unknown"
