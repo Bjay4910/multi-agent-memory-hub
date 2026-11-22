@@ -35,7 +35,7 @@ from typing import IO, Any
 from . import __version__
 from .memory.format import format_node, format_search
 from .memory.readonly import MemoryUnavailable, ReadOnlyMemory
-from .memory.redact import find_secrets, redact_secrets
+from .memory.redact import REPLACEMENT, find_secrets, redact_secrets
 
 SERVER_NAME = "agent-room-memory"
 # Oldest first; the last one is offered when the client asks for something else.
@@ -339,7 +339,13 @@ def call_tool(name: str, args: dict) -> tuple[str, bool]:
             text = session_latest(args.get("agent", "claude-code"), _int_arg(args, "n", 1))
         else:
             text = memory_remember(args.get("text"), args.get("tag", DEFAULT_TAG))
-        return cap(redact_secrets(text)), False
+        if name in ("working_search", "session_latest"):
+            # piece by piece around markers, as working.py does: over a marker, redact_secrets reads
+            # "api_key=[REDACTED]&page=2&sort=asc" as one value and swallows the parameters
+            text = REPLACEMENT.join(redact_secrets(piece) for piece in text.split(REPLACEMENT))
+        else:
+            text = redact_secrets(text)
+        return cap(text), False
     except ToolInputError as exc:
         return f"Invalid input: {exc}", True
     except ToolRefused as exc:

@@ -172,14 +172,19 @@ def parse_transcript(path: Path) -> tuple[str | None, list[dict]]:
             raw = user_request_text(content)
             if first_request is None:
                 first_request = raw
-            text = capture.clean_text(raw)
+            text = capture.strip_text(raw)
             if text and key:
-                items.append({"key": key, "role": "user", "ts": entry.get("created_at"), "text": text})
+                items.append({"key": key, "role": "user", "ts": entry.get("created_at"), "text": text, "raw": text,
+                              "cut": capture.MAX_TURN_CHARS})
         elif kind == "PLANNER_RESPONSE" and isinstance(content, str) and content.strip() and key:
             # Only the reply text: never 'thinking' or 'tool_calls'. A later reply in the same turn replaces it.
-            text = capture.clean_text(content)
+            text = capture.strip_text(content)
             if text:
-                pending = {"key": key, "role": "assistant", "ts": entry.get("created_at"), "text": text}
+                if pending:  # a later reply replaces it. Never stored as a new turn: its raw text is used for
+                    # withholding, and its key lets working.upsert rebuild it if an earlier Stop hook stored it.
+                    items.append({"role": "draft", "key": pending["key"], "raw": pending["raw"], "cut": pending["cut"]})
+                pending = {"key": key, "role": "assistant", "ts": entry.get("created_at"), "text": text, "raw": text,
+                           "cut": capture.MAX_TURN_CHARS}
         # GENERIC (tool output, file contents) and SYSTEM_MESSAGE are dropped.
     flush()
     return first_request, items
@@ -193,34 +198,37 @@ def is_room_prompt(first_request: str | None) -> bool:
 
 def capture_antigravity(hook: dict) -> str:
     """Store one agy conversation's turns in the working layer. Returns a status word."""
+    return _capture_antigravity(hook)[0]
+
+
+def _capture_antigravity(hook: dict) -> tuple[str, dict | None]:
+    """(status, the note as written, if one was)."""
     if os.environ.get(capture.ROOM_SPAWNED_ENV) == "1":
-        return "room-spawned"
+        return "room-spawned", None
     if not capture.is_enabled():
-        return "disabled"
+        return "disabled", None
     if not isinstance(hook, dict):
-        return "bad-input"
+        return "bad-input", None
     status, path = transcript_for(hook)
     if path is None:
-        return status
+        return status, None
     if not path.is_file():
-        return "missing-transcript"
+        return "missing-transcript", None
     if path.stat().st_size > MAX_TRANSCRIPT_BYTES:
-        return "too-large"
+        return "too-large", None
     try:
         first_request, items = parse_transcript(path)
     except OverflowError:
-        return "too-large"
+        return "too-large", None
     if first_request is None:
-        return "no-user-input"
+        return "no-user-input", None
     if is_room_prompt(first_request):
-        return "room-spawned"
-    for item in items:
-        item["text"] = redact_secrets(item["text"])  # before anything is stored
+        return "room-spawned", None
     try:
-        status, _ = working.upsert(SOURCE, hook["conversationId"], capture.project_tag(_project_source(hook)), items)
+        source = _project_source(hook)
+        return working.upsert(SOURCE, hook["conversationId"], Path(source).name if source else "", items)
     except working.WorkingSafetyError:
-        return "refused-location"
-    return status
+        return "refused-location", None
 
 
 def _ancestor_args(depth: int = 3) -> list[str]:
@@ -287,9 +295,9 @@ def run_worker(raw: str) -> int:
     """The detached worker: capture, log the status (no content). Never raises."""
     try:
         hook = json.loads(raw[: capture.MAX_HOOK_INPUT])
-        status = capture_antigravity(hook)
-        project = capture.project_tag(_project_source(hook)) if isinstance(hook, dict) else ""
-        capture.log_event(f"antigravity:{status}", project if status in ("created", "updated") else "")
+        status, note = _capture_antigravity(hook)
+        # the project name exactly as stored in the note (masked and scrubbed with the turns' values)
+        capture.log_event(f"antigravity:{status}", note["project"] if note and status in ("created", "updated") else "")
     except Exception as exc:  # noqa: BLE001
         capture.log_event(f"antigravity:error:{type(exc).__name__}")
     return 0
