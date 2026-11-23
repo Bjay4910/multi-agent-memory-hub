@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Local, read-only dashboard for the agent room memory (served by `room dashboard-api`).",
   "scripts": {
+    "predev": "node scripts/build-privacy.mjs",
     "dev": "vite",
     "privacy": "node scripts/build-privacy.mjs",
     "prebuild": "node scripts/build-privacy.mjs",

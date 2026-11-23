@@ -2,7 +2,7 @@
   "generatedFrom": {
     "docs": "docs/MEMORY.md",
     "readme": "README.md",
-    "docsCommit": "1fc1e59"
+    "docsCommit": "a8ace34"
   },
   "verifiedMeans": "Verified means: these exact examples, with only the secret value changed to another value of the same kind, at least the row's minimum length and within its case limit (both shown in the table).",
   "handledForms": [
@@ -1432,7 +1432,7 @@
       "children": []
     },
     {
-      "text": "Gap 3 (open; needs a decision). Stage 10 added every substring redact_secrets masks in the extraction prompt to the withheld values, without changing redact.py. Gap 3 itself is not fixed: the redaction layer (room/memory/redact.py, used by capture and the working layer) only catches known token shapes and label=value pairs with 6+ characters, so a prefix-less password (\"the password is swordfish\") in a working-layer transcript is not redacted there, and working_search (also through the room MCP server) can return it. The masking above applies only on the way into the long-term graph.",
+      "text": "Gap 3 (closed for new working notes). Working notes are now masked with the extraction filter's credential mask, in extraction's order, before they are written (see Working layer): verified forms only, with the same \"Verified means\" definition and minimum lengths as Handled forms (tested), and every gap in this list applies to them too, including the stage 15 one-case single-= base64 gap. room/memory/redact.py itself is unchanged. Only secret-shaped values are scrubbed across turns (the rule is under Working layer); the cases that remain open are listed there and kept as strict xfails. Not covered: those boundaries, and notes written before this change whose session is not captured again with a new turn (they expire 14 days after their last update, and room working purge --all deletes every note). room working promote copies a note's turns as stored, so promoting an older note copies its older redaction.",
       "children": []
     },
     {
@@ -1457,10 +1457,10 @@
     }
   ],
   "testCounts": {
-    "line": "The suite has 1,380 tests (counted with pytest --collect-only; 1,344 pass and 36 are expected failures)",
-    "testsText": "1,380",
-    "tests": 1380,
-    "passed": 1344,
-    "xfailed": 36
+    "line": "The suite has 3,519 tests (counted with pytest --collect-only; 3,371 pass and 148 are expected failures)",
+    "testsText": "3,519",
+    "tests": 3519,
+    "passed": 3371,
+    "xfailed": 148
   }
 }
