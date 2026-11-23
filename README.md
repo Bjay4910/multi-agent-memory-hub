@@ -1,5 +1,7 @@
 # multi-agent-memory-hub
 
+[Watch the demo](https://bjay4910.github.io/multi-agent-memory-hub/)
+
 A local "room" where several AI models work on the same question together.
 By default Claude and Gemini answer in turn; Hermes (running locally through
 Ollama) and Muse can be added per run. Every agent can read the shared
